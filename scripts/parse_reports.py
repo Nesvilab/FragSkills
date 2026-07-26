@@ -7,8 +7,8 @@ Two entry points:
 
 CLI::
 
-    python scripts/parse_reports.py --workdir I:/test_fragskill/dda
-    python scripts/parse_reports.py --workdir I:/test_fragskill/dda --summary
+    python scripts/parse_reports.py --workdir I:/test_fragskills/dda
+    python scripts/parse_reports.py --workdir I:/test_fragskills/dda --summary
     python scripts/parse_reports.py --file .../psm.tsv --columns
     python scripts/parse_reports.py --file .../psm.tsv --head 5
     python scripts/parse_reports.py --workdir ... --summary --json
@@ -163,7 +163,7 @@ def discover(workdir: str) -> dict:
     inv["logs"] = sorted(
         os.path.join(workdir, f) for f in os.listdir(workdir)
         if (f.startswith("log_") and f.endswith(".txt"))
-        or f == "fragskill_run.log")
+        or f == "fragskills_run.log")
 
     if not inv["experiments"]:
         inv["notes"].append(

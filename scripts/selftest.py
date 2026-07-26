@@ -1,9 +1,9 @@
-"""Regression self-test for FragSkill, driven by a real FragPipe run.
+"""Regression self-test for FragSkills, driven by a real FragPipe run.
 
 Point it at a finished FragPipe output directory containing a ``log_*.txt`` and
 the report TSVs::
 
-    python scripts/selftest.py --example I:/test_fragskill/dda
+    python scripts/selftest.py --example I:/test_fragskills/dda
 
 It checks the log parser (full and mid-run), the success/failure decision, the
 output discovery, and the report summaries.  Run it after changing any script,
@@ -43,7 +43,7 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 def find_log(workdir: str) -> str:
     hits = sorted(glob.glob(os.path.join(workdir, "log_*.txt")))
     if not hits:
-        hits = [p for p in [os.path.join(workdir, "fragskill_run.log")]
+        hits = [p for p in [os.path.join(workdir, "fragskills_run.log")]
                 if os.path.isfile(p)]
     if not hits:
         raise SystemExit("no FragPipe log found in %s" % workdir)
@@ -322,7 +322,7 @@ def _test_newest_is_default(cf) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="FragSkill self-test.")
+    ap = argparse.ArgumentParser(description="FragSkills self-test.")
     ap.add_argument("--example", required=True,
                     help="a finished FragPipe output directory")
     args = ap.parse_args(argv)

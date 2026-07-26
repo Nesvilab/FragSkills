@@ -1,4 +1,4 @@
-# FragSkill
+# FragSkills
 
 A Claude Code skill for running [FragPipe](https://fragpipe.nesvilab.org/) headless and
 interpreting its output.
@@ -30,7 +30,7 @@ install.bat                     :: Windows  (or just double-click it)
 ./install.sh                    # Linux / macOS
 ```
 
-That links the skill into `~/.claude/skills/fragskill`, verifies it, and checks that you have
+That links the skill into `~/.claude/skills/fragskills`, verifies it, and checks that you have
 Python 3.8+. Then start a new Claude Code session — it picks the skill up automatically.
 
 By default the installer creates a **link** (a directory junction on Windows, a symlink on
@@ -77,7 +77,7 @@ install.bat --uninstall
 ```
 
 Removing a link never touches the files it points at, and the installer refuses to delete a
-directory that is not a FragSkill install.
+directory that is not a FragSkills install.
 
 ## Layout
 

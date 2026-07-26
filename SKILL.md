@@ -1,9 +1,9 @@
 ---
-name: fragskill
+name: fragskills
 description: Run FragPipe (MSFragger/Philosopher/IonQuant/TMT-Integrator/DIA-NN) proteomics analyses in headless mode, track progress while they run, and interpret the results. Use when asked to search or quantify mass-spectrometry proteomics data, run a FragPipe workflow, monitor a running FragPipe job, or read FragPipe output such as psm.tsv, peptide.tsv, modified_peptide.tsv, ion.tsv, protein.tsv, combined_*.tsv, the tmt-report folder, or the dia-quant-output folder.
 ---
 
-# FragSkill — running and interpreting FragPipe
+# FragSkills — running and interpreting FragPipe
 
 FragPipe is a proteomics pipeline that chains MSFragger, MSBooster, Percolator/PeptideProphet,
 ProteinProphet, Philosopher, IonQuant, TMT-Integrator, and DIA-NN. This skill drives it headless
@@ -88,8 +88,8 @@ hours. `--dry-run` makes FragPipe print its plan and stop; use it to validate co
 
 ## Reporting progress while it runs
 
-`fragpipe_run.py` keeps `<workdir>/fragskill_status.json` current and mirrors all output to
-`<workdir>/fragskill_run.log`. Poll it:
+`fragpipe_run.py` keeps `<workdir>/fragskills_status.json` current and mirrors all output to
+`<workdir>/fragskills_run.log`. Poll it:
 
 ```bash
 python scripts/fragpipe_status.py --workdir D:/run/out          # human readable

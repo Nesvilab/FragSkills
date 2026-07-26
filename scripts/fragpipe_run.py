@@ -19,8 +19,8 @@ Typical use from Claude Code -- start it in the background, then poll::
 
 Why a status file: real runs take minutes to many hours, far longer than a
 foreground tool call can wait.  This script streams the child's stdout, keeps
-``<workdir>/fragskill_status.json`` current, and mirrors everything to
-``<workdir>/fragskill_run.log``.
+``<workdir>/fragskills_status.json`` current, and mirrors everything to
+``<workdir>/fragskills_run.log``.
 
 Exit code of THIS script is meaningful, unlike FragPipe's own (always 0):
 
@@ -49,8 +49,8 @@ from fragpipe_progress import (  # noqa: E402
 )
 from check_fragpipe import EXPLICIT_SOURCES, is_explicit, locate, render  # noqa: E402
 
-STATUS_NAME = "fragskill_status.json"
-CONSOLE_LOG_NAME = "fragskill_run.log"
+STATUS_NAME = "fragskills_status.json"
+CONSOLE_LOG_NAME = "fragskills_run.log"
 
 WINDOWS = os.name == "nt"
 
@@ -121,7 +121,7 @@ class StatusWriter:
                 json.dump(payload, fh, indent=2)
             os.replace(tmp, self.path)
         except OSError as exc:  # never let status writing kill the run
-            print("[fragskill] warning: could not write status file: %s" % exc,
+            print("[fragskills] warning: could not write status file: %s" % exc,
                   file=sys.stderr, flush=True)
 
 
@@ -185,18 +185,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         install, source, others = resolve_installation(args)
     except SystemExit as exc:   # an explicit path that is not a FragPipe install
-        print("[fragskill] ERROR: %s" % exc, file=sys.stderr)
+        print("[fragskills] ERROR: %s" % exc, file=sys.stderr)
         return EXIT_CONFIG_ERROR
     print(render(install, source, others))
     print("")
 
     if install is None:
-        print("[fragskill] ERROR: no FragPipe installation found. Ask the user for "
+        print("[fragskills] ERROR: no FragPipe installation found. Ask the user for "
               "the folder, then pass --fragpipe-dir <folder>.", file=sys.stderr)
         return EXIT_NO_FRAGPIPE
 
     if not is_explicit(source) and not args.accept_detected:
-        print("[fragskill] STOP: the FragPipe folder above was detected, not "
+        print("[fragskills] STOP: the FragPipe folder above was detected, not "
               "specified.\n"
               "           Show it to the user and have them confirm it, then "
               "re-run with\n"
@@ -215,7 +215,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     problems = preflight(args, fragpipe_bin)
     if problems:
         for p in problems:
-            print("[fragskill] ERROR: %s" % p, file=sys.stderr)
+            print("[fragskills] ERROR: %s" % p, file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
     workdir = os.path.abspath(args.workdir)
@@ -251,8 +251,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return base
 
     status.write(payload({"state": "starting"}), force=True)
-    print("[fragskill] %s" % subprocess.list2cmdline(cmd), flush=True)
-    print("[fragskill] status file: %s" % status_path, flush=True)
+    print("[fragskills] %s" % subprocess.list2cmdline(cmd), flush=True)
+    print("[fragskills] status file: %s" % status_path, flush=True)
 
     popen_kwargs = dict(stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         bufsize=1, universal_newlines=True,
@@ -268,7 +268,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         prog.state = STATE_FAILED
         prog.error = "could not start FragPipe: %s" % exc
         status.write(payload(), force=True)
-        print("[fragskill] ERROR: %s" % prog.error, file=sys.stderr)
+        print("[fragskills] ERROR: %s" % prog.error, file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
     interrupted = False
@@ -288,7 +288,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 logfh.flush()
     except KeyboardInterrupt:
         interrupted = True
-        print("\n[fragskill] interrupted - terminating FragPipe and children",
+        print("\n[fragskills] interrupted - terminating FragPipe and children",
               file=sys.stderr, flush=True)
         kill_tree(proc)
     finally:
@@ -320,10 +320,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         extra["outputs"] = collect_outputs(workdir)
     status.write(payload(extra), force=True)
 
-    print("\n[fragskill] %s" % prog.describe(), flush=True)
-    print("[fragskill] status: %s" % status_path, flush=True)
+    print("\n[fragskills] %s" % prog.describe(), flush=True)
+    print("[fragskills] status: %s" % status_path, flush=True)
     if prog.state == STATE_FAILED:
-        print("[fragskill] last lines of output:", file=sys.stderr)
+        print("[fragskills] last lines of output:", file=sys.stderr)
         for line in prog.recent[-15:]:
             print("    %s" % line, file=sys.stderr)
         return 1
@@ -334,26 +334,26 @@ def _report(event: dict, prog: RunProgress, quiet: bool) -> None:
     """Print a compact progress line for notable events."""
     etype = event.get("type")
     if etype == "plan":
-        print("[fragskill] plan: %d task(s)" % (event.get("total_tasks") or 0),
+        print("[fragskills] plan: %d task(s)" % (event.get("total_tasks") or 0),
               flush=True)
     elif etype == "task_started":
         pct = event.get("percent")
-        print("[fragskill] [%5.1f%%] start  %s"
+        print("[fragskills] [%5.1f%%] start  %s"
               % (pct if pct is not None else 0.0, event["task"]), flush=True)
     elif etype == "task_finished":
         pct = event.get("percent")
         mark = "ok " if event.get("exit_code") == 0 else "FAIL"
-        print("[fragskill] [%5.1f%%] %s %s (%s/%s)"
+        print("[fragskills] [%5.1f%%] %s %s (%s/%s)"
               % (pct if pct is not None else 0.0, mark, event["task"],
                  event.get("finished"), event.get("total")), flush=True)
     elif etype == "milestone" and quiet:
-        print("[fragskill]         %s" % event["message"], flush=True)
+        print("[fragskills]         %s" % event["message"], flush=True)
     elif etype == "warning":
-        print("[fragskill] WARNING: %s" % event["message"], flush=True)
+        print("[fragskills] WARNING: %s" % event["message"], flush=True)
     elif etype in ("failed", "cancelled"):
-        print("[fragskill] %s" % (event.get("message") or etype), flush=True)
+        print("[fragskills] %s" % (event.get("message") or etype), flush=True)
     elif etype == "done":
-        print("[fragskill] ALL JOBS DONE in %s min" % event.get("total_minutes"),
+        print("[fragskills] ALL JOBS DONE in %s min" % event.get("total_minutes"),
               flush=True)
 
 

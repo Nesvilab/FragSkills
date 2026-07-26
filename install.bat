@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 REM ============================================================================
-REM  Install FragSkill so Claude Code can find it.
+REM  Install FragSkills so Claude Code can find it.
 REM
 REM    install.bat                  install for the current user
 REM    install.bat --project        install into .\.claude\skills
@@ -15,7 +15,7 @@ REM  effect immediately.  Junctions do NOT require administrator rights.
 REM  Use --copy when this folder is on a drive the machine cannot always reach.
 REM ============================================================================
 
-set "SKILL_NAME=fragskill"
+set "SKILL_NAME=fragskills"
 set "MODE=user"
 set "PROJECT_DIR="
 set "METHOD=auto"
@@ -36,7 +36,7 @@ REM with arguments is being scripted and must never block.
 if "%~1"=="" (
     echo %cmdcmdline% | find /i "%~nx0" >nul 2>&1 && set "PAUSE_AT_END=1"
 )
-if defined FRAGSKILL_NO_PAUSE set "PAUSE_AT_END="
+if defined FRAGSKILLS_NO_PAUSE set "PAUSE_AT_END="
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -71,7 +71,7 @@ goto finish
 REM --- resolve source ---------------------------------------------------------
 if not exist "%SOURCE_DIR%\SKILL.md" (
     call :die "SKILL.md not found in %SOURCE_DIR%"
-    echo        This script must stay inside the FragSkill folder.
+    echo        This script must stay inside the FragSkills folder.
     goto finish
 )
 
@@ -94,7 +94,7 @@ set "TARGET=!SKILLS_DIR!\%SKILL_NAME%"
 if "%UNINSTALL%"=="1" goto do_uninstall
 
 REM --- install ----------------------------------------------------------------
-echo Installing FragSkill
+echo Installing FragSkills
 echo   source : %SOURCE_DIR%
 echo   target : !TARGET!
 echo   scope  : !SCOPE_DESC!
@@ -206,10 +206,10 @@ if not "!IS_JUNCTION!"=="1" (
     REM Only delete a real folder if it really is a copy of this skill.
     set "IS_OURS="
     if exist "!TARGET!\SKILL.md" (
-        findstr /i /r /c:"^name:[ ]*fragskill" "!TARGET!\SKILL.md" >nul 2>&1 && set "IS_OURS=1"
+        findstr /i /r /c:"^name:[ ]*fragskills" "!TARGET!\SKILL.md" >nul 2>&1 && set "IS_OURS=1"
     )
     if not "!IS_OURS!"=="1" if not "%FORCE%"=="1" (
-        call :die "!TARGET! is not a FragSkill install (no matching SKILL.md)."
+        call :die "!TARGET! is not a FragSkills install (no matching SKILL.md)."
         echo        Refusing to delete it. Use --force if you are certain.
         goto finish
     )
@@ -277,7 +277,7 @@ set "EXITCODE=1"
 exit /b 0
 
 :usage
-echo Install FragSkill so Claude Code can find it.
+echo Install FragSkills so Claude Code can find it.
 echo.
 echo   install.bat                  install for the current user
 echo                                  (%%USERPROFILE%%\.claude\skills)

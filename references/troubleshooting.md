@@ -97,5 +97,5 @@ through the launcher, or kill the tree explicitly.
 FragPipe cleans its Philosopher workspace at the start (`WorkspaceCleanInit`), but stale
 `psm.tsv`/`protein.tsv` from a previous run are **not** guaranteed to be removed. When re-running
 after a failure, use a fresh workdir, or you may end up reading the previous run's results and
-believing the new one succeeded. `fragskill_status.json` records `started_at` — compare it against
+believing the new one succeeded. `fragskills_status.json` records `started_at` — compare it against
 the report files' mtimes if in doubt.

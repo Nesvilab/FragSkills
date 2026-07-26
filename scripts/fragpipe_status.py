@@ -1,6 +1,6 @@
 """Report the progress of a FragPipe run.
 
-Reads ``<workdir>/fragskill_status.json`` when the run was started by
+Reads ``<workdir>/fragskills_status.json`` when the run was started by
 ``fragpipe_run.py``.  Falls back to re-parsing the newest FragPipe log in the
 work directory, so it also works for runs launched some other way (the GUI, a
 cluster script, ``fragpipe --headless`` invoked directly).
@@ -28,14 +28,14 @@ from fragpipe_progress import (  # noqa: E402
     parse_log, STATE_FAILED, STATE_RUNNING, STATE_SUCCEEDED,
 )
 
-STATUS_NAME = "fragskill_status.json"
+STATUS_NAME = "fragskills_status.json"
 EXIT_SUCCEEDED, EXIT_FAILED, EXIT_RUNNING, EXIT_NOT_FOUND = 0, 1, 2, 3
 
 
 def newest_log(workdir: str) -> Optional[str]:
     """Newest FragPipe console log in *workdir*, preferring our own tee."""
     candidates = []
-    ours = os.path.join(workdir, "fragskill_run.log")
+    ours = os.path.join(workdir, "fragskills_run.log")
     if os.path.isfile(ours):
         candidates.append(ours)
     candidates.extend(glob.glob(os.path.join(workdir, "log_*.txt")))

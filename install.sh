@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install FragSkill so Claude Code can find it.
+# Install FragSkills so Claude Code can find it.
 #
 #   ./install.sh                    install for the current user (~/.claude/skills)
 #   ./install.sh --project          install into ./.claude/skills
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-SKILL_NAME="fragskill"
+SKILL_NAME="fragskills"
 MODE="user"
 PROJECT_DIR=""
 INSTALL_METHOD="auto"   # auto | link | copy
@@ -38,7 +38,7 @@ die()  { printf '%s\n' "${C_RED}ERROR${C_OFF} $*" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
-Install FragSkill so Claude Code can find it.
+Install FragSkills so Claude Code can find it.
 
   ./install.sh                    install for the current user (~/.claude/skills)
   ./install.sh --project          install into ./.claude/skills
@@ -78,7 +78,7 @@ done
 
 # --- resolve source and target ----------------------------------------------
 [ -f "$SOURCE_DIR/SKILL.md" ] || die "SKILL.md not found in $SOURCE_DIR.
-This script must stay inside the FragSkill directory."
+This script must stay inside the FragSkills directory."
 
 if [ "$MODE" = "project" ]; then
     PROJECT_DIR="${PROJECT_DIR:-$PWD}"
@@ -98,7 +98,7 @@ TARGET="$SKILLS_DIR/$SKILL_NAME"
 target_is_ours() {
     [ -L "$TARGET" ] && return 0
     [ -d "$TARGET" ] && [ -f "$TARGET/SKILL.md" ] \
-        && grep -qi '^name:[[:space:]]*fragskill' "$TARGET/SKILL.md" && return 0
+        && grep -qi '^name:[[:space:]]*fragskills' "$TARGET/SKILL.md" && return 0
     return 1
 }
 
@@ -117,7 +117,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
         exit 0
     fi
     if ! target_is_ours && [ "$FORCE" -ne 1 ]; then
-        die "$TARGET is not a FragSkill install (no matching SKILL.md).
+        die "$TARGET is not a FragSkills install (no matching SKILL.md).
 Refusing to delete it. Use --force if you are certain."
     fi
     remove_target
@@ -126,7 +126,7 @@ Refusing to delete it. Use --force if you are certain."
 fi
 
 # --- install -----------------------------------------------------------------
-info "${C_BOLD}Installing FragSkill${C_OFF}"
+info "${C_BOLD}Installing FragSkills${C_OFF}"
 info "  source : $SOURCE_DIR"
 info "  target : $TARGET"
 info "  scope  : $SCOPE_DESC"
@@ -139,10 +139,10 @@ if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
     fi
     if [ "$FORCE" -ne 1 ]; then
         if target_is_ours; then
-            die "$TARGET already exists (a different FragSkill install).
+            die "$TARGET already exists (a different FragSkills install).
 Re-run with --force to replace it."
         fi
-        die "$TARGET already exists and is not FragSkill.
+        die "$TARGET already exists and is not FragSkills.
 Re-run with --force to replace it, or use --name to install under another name."
     fi
     remove_target
