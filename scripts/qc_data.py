@@ -1,6 +1,6 @@
 """Extract the data behind FragPipe's QC plots from a finished run.
 
-Every series in ``fragpipe-report.html`` comes from ``psm.tsv`` plus the run's
+Every series in ``fragskills-qc-report.html`` comes from ``psm.tsv`` plus the run's
 ``log_*.txt``; this module derives all of them with the standard library alone,
 and ``make_report.py`` draws the report from what it returns.
 

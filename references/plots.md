@@ -1,22 +1,25 @@
 # Summary report and QC plots
 
-FragPipe's QC report (`fragpipe-report.html`) is derived entirely from files the run already wrote:
+The QC report (`fragskills-qc-report.html`) is derived entirely from files the run already wrote:
 **`psm.tsv`**, the run's **`log_*.txt`**, the manifest, and the PNGs MSBooster produced. No extra
 tool, no re-search, and nothing that has to come from the FragPipe installation.
 
-**Headless runs never generate it.** FragPipe builds the report only from the *Generate summary
-report* button on the GUI's Run tab, so after `fragpipe_run.py` it does not exist.
+**Headless runs never generate it.** FragPipe builds its own report only from the *Generate summary
+report* button on the GUI's Run tab, so after `fragpipe_run.py` no report exists at all.
+
+The file name is deliberately not `fragpipe-report.html`: that one belongs to FragPipe's summary
+report module, so the two sit side by side in the same workdir and neither overwrites the other.
 
 ## Which path to use
 
 | Goal | Use |
 |---|---|
-| The report a FragPipe user expects | `make_report.py` — writes `fragpipe-report.html` |
+| The report a FragPipe user expects | `make_report.py` — writes `fragskills-qc-report.html` |
 | A number to quote, a custom figure, one run out of many, a cross-run comparison | `qc_data.py` — the same series as JSON/TSV, then plot it yourself |
 | A one-off chart in the report's style | `svg_charts.py` — the drawing primitives on their own |
 
 ```bash
-python scripts/make_report.py --workdir D:/run/out          # -> fragpipe-report.html
+python scripts/make_report.py --workdir D:/run/out          # -> fragskills-qc-report.html
 python scripts/qc_data.py --workdir D:/run/out --list       # what is available
 python scripts/qc_data.py --workdir D:/run/out --tsv D:/qc  # tidy TSVs
 python scripts/qc_data.py --workdir D:/run/out --json qc.json

@@ -1,5 +1,5 @@
 ---
-description: Build the fragpipe-report.html QC summary for a finished run
+description: Build the fragskills-qc-report.html QC summary for a finished run
 argument-hint: "<workdir>"
 allowed-tools: Bash, PowerShell, Read
 ---

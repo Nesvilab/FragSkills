@@ -20,7 +20,7 @@ interpreting its output.
 - **Identifies which files are the actual result.** TMT, TMT+PTM, DIA, grouped DDA and single-run
   DDA each leave a different main table, next to several plausible-looking wrong ones. Discovery
   names the run type, ranks the files that answer it, and says explicitly what not to quantify from.
-- **Builds the QC summary report that headless runs never produce** — `fragpipe-report.html`, with
+- **Builds the QC summary report that headless runs never produce** — `fragskills-qc-report.html`, with
   no FragPipe installation, no Java and no third-party packages, from a results folder alone. It is
   a port of FragPipe's own generators (`generate_reports_pdf.py`, then the FragSummarizer jar),
   checked panel by panel against the jar's output. The underlying series are also available as
@@ -34,7 +34,7 @@ Three slash commands, for the steps worth a typed shortcut:
 |---|---|
 | `/fragskills-run <workdir>` | Launch a headless search in the background |
 | `/fragskills-status <workdir>` | Report progress, or why a run stopped |
-| `/fragskills-report <workdir>` | Build `fragpipe-report.html` and read the QC out loud |
+| `/fragskills-report <workdir>` | Build `fragskills-qc-report.html` and read the QC out loud |
 
 They are **dispatchers, not documentation** — four lines each, pointing at the matching section of
 `SKILL.md`. That keeps one source of truth: edit the skill, and the commands follow. Anything else
@@ -158,7 +158,7 @@ files, not sample names. `references/outputs.md` has the column reference for ev
 Then the QC report and its underlying series:
 
 ```bash
-python scripts/make_report.py --workdir D:/run/out            # -> fragpipe-report.html
+python scripts/make_report.py --workdir D:/run/out            # -> fragskills-qc-report.html
 python scripts/qc_data.py     --workdir D:/run/out --tsv D:/qc   # or --json, --list
 ```
 
@@ -182,7 +182,7 @@ scripts/
   fragpipe_run.py             launch headless, stream progress, maintain status JSON
   fragpipe_status.py          poll a run (exit 0/1/2/3 = ok/failed/running/not found)
   fragpipe_progress.py        stdout -> structured progress (importable + CLI)
-  make_report.py              build fragpipe-report.html from a results folder, in pure Python
+  make_report.py              build fragskills-qc-report.html from a results folder, in pure Python
   qc_data.py                  the data behind those plots as JSON/TSV, for custom figures
   svg_charts.py               dependency-free SVG chart primitives used by the report
   make_manifest.py            build .fp-manifest files, with FragPipe's naming rules enforced

@@ -179,8 +179,11 @@ FragPipe generates its QC report only from a GUI button, so **a headless run nev
 This skill builds it directly:
 
 ```bash
-python scripts/make_report.py --workdir D:/run/out     # -> <workdir>/fragpipe-report.html
+python scripts/make_report.py --workdir D:/run/out     # -> <workdir>/fragskills-qc-report.html
 ```
+
+The name is deliberately not `fragpipe-report.html` — that belongs to FragPipe's own summary report
+module. Never write to that path; a workdir can hold both files.
 
 Seconds to run, and it needs **nothing but the run's own output** — no FragPipe installation, no
 Java, no pandas or matplotlib. It works on a copied results folder or a machine that has never had

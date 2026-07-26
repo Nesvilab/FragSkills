@@ -1,8 +1,8 @@
-"""Generate FragPipe's HTML summary report, in pure Python.
+"""Generate the FragPipe QC summary report as HTML, in pure Python.
 
     python scripts/make_report.py --workdir D:/run/out
 
-Writes ``<workdir>/fragpipe-report.html``: one self-contained page with the
+Writes ``<workdir>/fragskills-qc-report.html``: one self-contained page with the
 experiment design table, the runtime Gantt chart, overall and per-run PSM
 statistics, mass calibration before/after, Percolator feature weights, and the
 MSBooster plots embedded as base64.
@@ -35,7 +35,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import svg_charts as svg  # noqa: E402
 from qc_data import collect  # noqa: E402
 
-REPORT_NAME = "fragpipe-report.html"
+#: Deliberately *not* ``fragpipe-report.html``: that name belongs to FragPipe's
+#: own summary report module, and overwriting it would destroy the GUI's output.
+REPORT_NAME = "fragskills-qc-report.html"
 
 #: The nine per-run panels, in the order the official report lays them out:
 #: (series key in qc_data, chart kind, title, x label).
@@ -300,7 +302,7 @@ def build_html(data: dict, embed_images: bool = True) -> str:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
-        description="Generate fragpipe-report.html from a FragPipe output directory.")
+        description="Generate fragskills-qc-report.html from a FragPipe output directory.")
     ap.add_argument("--workdir", required=True, help="FragPipe output directory")
     ap.add_argument("--out", help="output file (default: <workdir>/%s)" % REPORT_NAME)
     ap.add_argument("--stride", type=int, default=1,

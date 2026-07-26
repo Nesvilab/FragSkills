@@ -55,7 +55,8 @@ AUX_FILES = ("fragpipe.workflow", "fragpipe-files.fp-manifest", "fragger.params"
              "combined.prot.xml", "protein.fas", "msbooster_params.txt",
              "experiment_annotation.tsv", "tmt-integrator-conf.yml",
              "msstats.csv", "msstats_ptm.csv", "reprint.int.tsv",
-             "reprint.spc.tsv", "fragpipe-report.html")
+             "reprint.spc.tsv", "fragpipe-report.html",
+             "fragskills-qc-report.html")
 
 #: Files big enough that counting their rows is not free.  ``report.tsv`` runs
 #: to hundreds of MB on a real DIA study, and its row count (precursors x runs)
