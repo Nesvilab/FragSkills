@@ -1,0 +1,10 @@
+# cmd.exe cannot resolve `call :label` from inside a nested block when a .bat
+# file has LF-only line endings -- it fails with "The system cannot find the
+# batch label specified". Batch files must stay CRLF.
+*.bat text eol=crlf
+
+# Shell scripts must stay LF, or /bin/sh chokes on the trailing CR.
+*.sh text eol=lf
+
+# Everything else: normalise in the repository, check out native.
+* text=auto
