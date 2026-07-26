@@ -1,14 +1,19 @@
-"""Regression self-test for FragSkills, driven by a real FragPipe run.
+"""Regression self-test for FragSkills, driven by real FragPipe runs.
 
-Point it at a finished FragPipe output directory containing a ``log_*.txt`` and
-the report TSVs::
+Point it at one or more finished FragPipe output directories, each containing a
+``log_*.txt`` and the report TSVs::
 
-    python scripts/selftest.py --example I:/test_fragskills/dda
+    python scripts/selftest.py --example I:/test_fragskill/dda
+    python scripts/selftest.py --example I:/test_fragskill/*/template
 
 It checks the log parser (full and mid-run), the success/failure decision, the
-output discovery, the report summaries, the QC plot series, and the summary
-report generator.  Run it after changing any script, especially when adding TMT
-or DIA support.
+output discovery, the run-type classification, the report summaries, the QC plot
+series, and the summary report generator.  The classification precedence and the
+quant-matrix reader are additionally tested against synthetic trees, so those
+run with no example at all.
+
+Give it one directory per analysis type -- DDA with named experiments, DDA with
+none, DIA, TMT, TMT with PTM enrichment -- to cover every output layout.
 
 Exit code 0 = all checks passed.
 """
@@ -27,6 +32,8 @@ from fragpipe_progress import (  # noqa: E402
     RunProgress, parse_log, STATE_FAILED, STATE_RUNNING, STATE_SUCCEEDED,
 )
 import parse_reports  # noqa: E402
+import quant_matrix as qm  # noqa: E402
+import run_type  # noqa: E402
 
 _failures = []
 _checks = 0
@@ -153,11 +160,252 @@ def test_outputs(workdir: str) -> None:
             check("peptides >= protein groups",
                   s_pep["peptides"] >= s_prot["protein_groups"],
                   "%s vs %s" % (s_pep["peptides"], s_prot["protein_groups"]))
-            check("protein.tsv row count equals psm.tsv distinct protein IDs",
-                  s_prot["protein_groups"] == s_psm["unique_protein_ids"],
+            # protein.tsv may hold MORE groups than psm.tsv names as leads:
+            # a group whose evidence is razor/shared peptides is reported even
+            # though each of those PSMs names a different lead accession. So
+            # containment is the invariant here, not equality.
+            psm_ids = {r.get("Protein ID", "")
+                       for r in parse_reports.iter_rows(psm)} - {""}
+            prot_ids = {r.get("Protein ID", "")
+                        for r in parse_reports.iter_rows(prot)} - {""}
+            check("every protein ID in psm.tsv is reported in protein.tsv",
+                  psm_ids <= prot_ids,
+                  "%d missing, e.g. %s" % (len(psm_ids - prot_ids),
+                                           sorted(psm_ids - prot_ids)[:3]))
+            check("protein groups >= distinct PSM protein IDs",
+                  s_prot["protein_groups"] >= s_psm["unique_protein_ids"],
                   "%s vs %s" % (s_prot["protein_groups"],
                                 s_psm["unique_protein_ids"]))
         break  # one experiment is enough for a smoke test
+
+
+def test_run_type(workdir: str) -> None:
+    """Invariants the classification must satisfy for any real output folder."""
+    print("\n[5b] run-type classification")
+    inv = parse_reports.discover(workdir)
+    cls = inv["classification"]
+    rt = cls["run_type"]
+    check("run type is a known value",
+          rt in run_type.LABELS, rt)
+    check("classification is not 'unknown'", rt != run_type.RUN_UNKNOWN, rt)
+    check("a main result was chosen", len(cls["main_files"]) > 0)
+    check("every main-result file exists",
+          all(os.path.isfile(f["path"]) for f in cls["main_files"]),
+          str([f["name"] for f in cls["main_files"]
+               if not os.path.isfile(f["path"])]))
+    check("the headline file is a 'main' one, not an aside",
+          cls["main_files"][0]["role"] == "main")
+    print("        -> %s: %s" % (rt, cls["main_files"][0]["name"]))
+
+    if rt in (run_type.RUN_TMT, run_type.RUN_TMT_PTM):
+        check("TMT main results live in tmt-report/",
+              all(os.path.basename(os.path.dirname(f["path"])) == "tmt-report"
+                  for f in cls["main_files"]))
+        check("TMT results are all abundance/ratio matrices",
+              all(qm.is_matrix(f["path"]) for f in cls["main_files"]))
+        ptm = any("site" in f["name"] for f in cls["main_files"])
+        check("site-level tables imply the PTM run type",
+              ptm == (rt == run_type.RUN_TMT_PTM), "site tables: %s" % ptm)
+        if cls["n_experiments"] > 1:
+            check("multi-plex leads with a ratio table",
+                  cls["main_files"][0]["name"].startswith("ratio_"),
+                  cls["main_files"][0]["name"])
+        check("combined_*.tsv is called out as not the answer",
+              any("combined" in a["what"] for a in cls["avoid"]))
+    elif rt == run_type.RUN_DIA:
+        check("DIA main results live in dia-quant-output/",
+              all(os.path.basename(os.path.dirname(f["path"]))
+                  == "dia-quant-output" for f in cls["main_files"]))
+        check("the root library reports are called out as not the answer",
+              any("library" in a["why"].lower() for a in cls["avoid"]))
+    elif rt == run_type.RUN_DDA_GROUPED:
+        check("grouped DDA points at combined_* files",
+              all(f["name"].startswith("combined_")
+                  for f in cls["main_files"]))
+        check("more than one experiment was found", cls["n_experiments"] > 1,
+              str(cls["n_experiments"]))
+    elif rt == run_type.RUN_DDA_SINGLE:
+        check("ungrouped DDA points at the per-experiment reports",
+              all(f["name"] in parse_reports.REPORT_FILES
+                  for f in cls["main_files"]),
+              str([f["name"] for f in cls["main_files"]]))
+
+    # Any matrix the classification named must actually read as one.
+    for f in cls["main_files"]:
+        if not qm.is_matrix(f["path"]):
+            continue
+        info = qm.summarize_matrix(f["path"])
+        check("%s reads as a matrix" % f["name"],
+              info["rows"] > 0 and info["sample_count"] > 0,
+              "%s rows, %s samples" % (info["rows"], info["sample_count"]))
+        check("%s has no sample that is empty throughout" % f["name"],
+              not info["empty_samples"], str(info["empty_samples"]))
+        check("%s counts one value column per sample" % f["name"],
+              len(info["values_per_sample"]) == info["sample_count"])
+
+
+def _write_tsv(path: str, header, rows=()) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\t".join(header) + "\n")
+        for r in rows:
+            fh.write("\t".join(r) + "\n")
+
+
+def test_classification_precedence() -> None:
+    """The precedence rules, on synthetic trees -- no example data needed.
+
+    Each case exists because the wrong answer is plausible: a TMT run really
+    does contain combined_*.tsv, and a DIA run really does contain psm.tsv.
+    """
+    print("\n[11] classification precedence (synthetic)")
+    root = ("Index\tNumberPSM\tGene\tMaxPepProb\tProtein\tProtein ID\t"
+            "Entry Name\tProtein Description\tOrganism\t"
+            "Indistinguishable Proteins\tReferenceIntensity\tS1\tS2"
+            ).split("\t")
+    with tempfile.TemporaryDirectory() as tmp:
+        # TMT: tmt-report/ present alongside combined_*.tsv and per-exp folders.
+        wd = os.path.join(tmp, "tmt")
+        _write_tsv(os.path.join(wd, "combined_protein.tsv"),
+                   ["Protein", "S1 Intensity", "S2 Intensity"])
+        _write_tsv(os.path.join(wd, "expA", "psm.tsv"), ["Spectrum"])
+        _write_tsv(os.path.join(wd, "tmt-report", "abundance_protein_MD.tsv"),
+                   root, [["P1", "2", "G", "1", "p", "P1", "e", "d", "o", "",
+                           "20.0", "20.1", "NA"]])
+        cls = parse_reports.discover(wd)["classification"]
+        check("tmt-report/ outranks combined_*.tsv",
+              cls["run_type"] == run_type.RUN_TMT, cls["run_type"])
+        check("the TMT headline is the tmt-report matrix",
+              cls["main_files"][0]["name"] == "abundance_protein_MD.tsv")
+
+        # TMT + PTM: site tables switch the type and the headline.
+        _write_tsv(os.path.join(wd, "tmt-report",
+                                "abundance_single-site_MD.tsv"), root)
+        cls = parse_reports.discover(wd)["classification"]
+        check("site-level tables select the PTM run type",
+              cls["run_type"] == run_type.RUN_TMT_PTM, cls["run_type"])
+        check("the PTM headline is the site table",
+              cls["main_files"][0]["name"] == "abundance_single-site_MD.tsv")
+
+        # DIA: dia-quant-output/ outranks the root library reports.
+        wd = os.path.join(tmp, "dia")
+        for n in ("psm.tsv", "peptide.tsv", "ion.tsv", "protein.tsv"):
+            _write_tsv(os.path.join(wd, n), ["Peptide"])
+        _write_tsv(os.path.join(wd, "dia-quant-output",
+                                "abundance_protein_X.tsv"),
+                   ["Protein", "Protein ID", "Gene", "D:/r1.mzML"],
+                   [["p", "P1", "G", "12.0"]])
+        cls = parse_reports.discover(wd)["classification"]
+        check("dia-quant-output/ outranks the root reports",
+              cls["run_type"] == run_type.RUN_DIA, cls["run_type"])
+        check("the DIA sample column is shortened to a run name",
+              qm.summarize_matrix(cls["main_files"][0]["path"])["samples"]
+              == ["r1"])
+
+        # Grouped vs ungrouped DDA.
+        wd = os.path.join(tmp, "dda")
+        _write_tsv(os.path.join(wd, "expA", "psm.tsv"), ["Spectrum"])
+        _write_tsv(os.path.join(wd, "expB", "psm.tsv"), ["Spectrum"])
+        _write_tsv(os.path.join(wd, "combined_protein.tsv"),
+                   ["Protein", "expA Intensity", "expB Intensity"])
+        cls = parse_reports.discover(wd)["classification"]
+        check("combined_*.tsv selects grouped DDA",
+              cls["run_type"] == run_type.RUN_DDA_GROUPED, cls["run_type"])
+
+        wd = os.path.join(tmp, "dda1")
+        for n in ("psm.tsv", "protein.tsv"):
+            _write_tsv(os.path.join(wd, n), ["Protein"])
+        cls = parse_reports.discover(wd)["classification"]
+        check("root reports alone select ungrouped DDA",
+              cls["run_type"] == run_type.RUN_DDA_SINGLE, cls["run_type"])
+        check("ungrouped DDA leads with protein.tsv",
+              cls["main_files"][0]["name"] == "protein.tsv")
+
+        # combined_site_*.tsv must be discovered, not silently skipped.
+        _write_tsv(os.path.join(tmp, "dda", "combined_site_M_15.9949.tsv"),
+                   ["Index", "Best Localization Probability",
+                    "expA Localization Probability", "expA Intensity"])
+        inv = parse_reports.discover(os.path.join(tmp, "dda"))
+        check("combined_site_*.tsv is discovered",
+              "combined_site_M_15.9949.tsv" in inv["combined_site_files"])
+        check("combined_site_*.tsv is offered as a result",
+              any(f["name"].startswith("combined_site_")
+                  for f in inv["classification"]["main_files"]))
+        site = parse_reports.summarize(
+            inv["combined_site_files"]["combined_site_M_15.9949.tsv"])
+        check("'Best' is not counted as a sample",
+              site["samples"] == ["expA"], str(site["samples"]))
+
+        # Nothing at all.
+        empty = os.path.join(tmp, "empty")
+        os.makedirs(empty)
+        cls = parse_reports.discover(empty)["classification"]
+        check("an empty workdir classifies as unknown",
+              cls["run_type"] == run_type.RUN_UNKNOWN, cls["run_type"])
+
+
+def test_quant_matrix() -> None:
+    """The two conventions that silently corrupt results if confused."""
+    print("\n[12] quant-matrix conventions (synthetic)")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmt = os.path.join(tmp, "tmt-report", "abundance_protein_MD.tsv")
+        _write_tsv(tmt,
+                   ["Index", "Gene", "ReferenceIntensity", "S1", "S2", "S3"],
+                   [["P1", "G1", "20.0", "20.5", "NA", "19.5"],
+                    ["P2", "G2", "21.0", "21.5", "22.0", "NA"]])
+        info = qm.summarize_matrix(tmt)
+        check("TMT matrix is flagged log2", info["log2"] is True)
+        check("TMT missing marker is NA", info["missing"] == "NA")
+        check("TMT samples are found", info["samples"] == ["S1", "S2", "S3"],
+              str(info["samples"]))
+        check("NA is counted as missing",
+              info["values_per_sample"] == {"S1": 2, "S2": 1, "S3": 1},
+              str(info["values_per_sample"]))
+        check("no row is complete across all three samples",
+              info["complete_rows"] == 0, str(info["complete_rows"]))
+        check("ReferenceIntensity is not treated as a sample",
+              "ReferenceIntensity" not in info["samples"])
+
+        dia = os.path.join(tmp, "dia-quant-output", "abundance_gene_X_Y.tsv")
+        _write_tsv(dia, ["Gene", "D:/data/run one.mzML", "D:/data/r2.raw"],
+                   [["G1", "1000", ""], ["G2", "2000", "3000"]])
+        info = qm.summarize_matrix(dia)
+        check("DIA matrix is flagged linear", info["log2"] is False)
+        check("DIA sample paths are shortened",
+              info["samples"] == ["run one", "r2"], str(info["samples"]))
+        check("an empty cell is counted as missing",
+              info["values_per_sample"] == {"run one": 2, "r2": 1},
+              str(info["values_per_sample"]))
+        check("zero is NOT counted as missing",
+              qm.summarize_matrix(_zero_matrix(tmp))["values_per_sample"]
+              == {"S1": 1}, "log2 of 1 is a real value")
+
+        # DIA-NN puts two identifier columns AFTER the samples.
+        pr = os.path.join(tmp, "dia-quant-output", "report.pr_matrix.tsv")
+        _write_tsv(pr, ["Protein.Group", "Precursor.Id", "D:/a.mzML",
+                        "D:/b.mzML", "All Mapped Proteins", "All Mapped Genes"],
+                   [["PG1", "PEP1", "5", "6", "P1;P2", "G1;G2"]])
+        info = qm.summarize_matrix(pr)
+        check("trailing identifier columns are not read as samples",
+              info["samples"] == ["a", "b"], str(info["samples"]))
+        check("DIA-NN matrix is recognised by name",
+              info["producer"] == qm.PRODUCER_DIANN, info.get("producer"))
+
+        stats = os.path.join(tmp, "dia-quant-output", "report.stats.tsv")
+        _write_tsv(stats, ["File.Name", "Precursors.Identified",
+                           "Proteins.Identified"],
+                   [["D:/data/r1.mzML", "51734", "5581"]])
+        rows = qm.read_stats(stats)
+        check("report.stats.tsv is read per run", len(rows) == 1)
+        check("stats run name is shortened", rows[0]["Run"] == "r1",
+              rows[0].get("Run", ""))
+
+
+def _zero_matrix(tmp: str) -> str:
+    path = os.path.join(tmp, "tmt-report", "ratio_gene_MD.tsv")
+    _write_tsv(path, ["Index", "ReferenceIntensity", "S1"],
+               [["G1", "20.0", "0.0"]])
+    return path
 
 
 def test_manifest_roundtrip() -> None:
@@ -526,24 +774,35 @@ def _test_newest_is_default(cf) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="FragSkills self-test.")
-    ap.add_argument("--example", required=True,
-                    help="a finished FragPipe output directory")
+    ap.add_argument("--example", required=True, nargs="+", metavar="DIR",
+                    help="one or more finished FragPipe output directories; "
+                         "give one per analysis type to cover every layout")
     args = ap.parse_args(argv)
 
-    workdir = os.path.abspath(args.example)
-    if not os.path.isdir(workdir):
-        print("not a directory: %s" % workdir, file=sys.stderr)
+    workdirs = [os.path.abspath(e) for e in args.example]
+    missing = [w for w in workdirs if not os.path.isdir(w)]
+    if missing:
+        print("not a directory: %s" % ", ".join(missing), file=sys.stderr)
         return 2
 
-    log_path = find_log(workdir)
-    full = test_full_log(log_path)
-    test_midrun(log_path, full)
-    test_outputs(workdir)
+    for workdir in workdirs:
+        if len(workdirs) > 1:
+            print("\n%s\n=== example: %s\n%s" % ("=" * 70, workdir, "=" * 70))
+        log_path = find_log(workdir)
+        full = test_full_log(log_path)
+        test_midrun(log_path, full)
+        test_outputs(workdir)
+        test_run_type(workdir)
+        test_qc_series(workdir)
+        test_report(workdir)
+
+    if len(workdirs) > 1:
+        print("\n%s\n=== layout-independent checks\n%s" % ("=" * 70, "=" * 70))
     test_manifest_roundtrip()
     test_fragpipe_location()
-    test_qc_series(workdir)
-    test_report(workdir)
     test_commands()
+    test_classification_precedence()
+    test_quant_matrix()
 
     print("\n%s" % ("-" * 60))
     if _failures:

@@ -16,6 +16,9 @@ interpreting its output.
 - Decides success correctly. Headless FragPipe calls `System.exit(0)` on both the success and the
   failure path, so the exit code is meaningless; the tools key off the stdout markers instead.
 - Discovers and summarizes the report TSVs, accounting for FragPipe's per-experiment output layout.
+- **Identifies which files are the actual result.** TMT, TMT+PTM, DIA, grouped DDA and single-run
+  DDA each leave a different main table, next to several plausible-looking wrong ones. Discovery
+  names the run type, ranks the files that answer it, and says explicitly what not to quantify from.
 - **Builds the QC summary report that headless runs never produce** — `fragpipe-report.html`, with
   no FragPipe installation, no Java and no third-party packages, from a results folder alone. It is
   a port of FragPipe's own generators (`generate_reports_pdf.py`, then the FragSummarizer jar),
@@ -129,6 +132,8 @@ scripts/
   svg_charts.py               dependency-free SVG chart primitives used by the report
   make_manifest.py            build .fp-manifest files, with FragPipe's naming rules enforced
   parse_reports.py            discover and summarize psm/peptide/ion/protein/combined_* TSVs
+  run_type.py                 classify the run and rank the files that hold its result
+  quant_matrix.py             read TMT / DIA / DIA-NN quant matrices (log2 vs linear, NA vs empty)
   selftest.py                 regression suite, run against a finished FragPipe output dir
 ```
 
@@ -139,24 +144,29 @@ downstream analysis; these tools are for orchestration and orientation.
 
 ```bash
 python scripts/selftest.py --example /path/to/a/finished/fragpipe/output
+
+# one directory per analysis type covers every output layout
+python scripts/selftest.py --example ~/runs/dda ~/runs/dda_no_group ~/runs/dia \
+                                     ~/runs/tmt ~/runs/tmt_phospho
 ```
 
-Checks the log parser (full and mid-run), success/failure detection, output discovery, report
-summaries, and manifest generation against a real completed run — it needs a directory containing
-a `log_*.txt` plus the report TSVs. Run it after any change.
+Checks the log parser (full and mid-run), success/failure detection, output discovery, run-type
+classification, report summaries, the QC series and the summary report against real completed runs
+— each directory needs a `log_*.txt` plus the report TSVs. The classification precedence and the
+quant-matrix conventions are also tested against synthetic trees, so those run anywhere. Run it
+after any change.
 
 ## Status
 
-Implemented and validated against a DDA run (LFQ + spectral-library generation): running,
-progress tracking, and the core `psm.tsv` / `peptide.tsv` / `ion.tsv` / `protein.tsv` /
-`combined_*.tsv` reports.
+Validated end to end against five real run layouts: DDA with named experiments, DDA with none, DIA,
+TMT, and TMT with phospho enrichment. For each one the skill identifies the run type, points at the
+right result files, and reads them — including the column names, `log2`-vs-linear values and
+`NA`-vs-empty missing markers, all taken from the output itself rather than from documentation.
 
 The report generator is validated against four layouts — single- and multi-experiment DDA, TMT, and
 DIA. Counts (charge, missed cleavages, ID bars, per-run histograms, feature weights) match
 FragSummarizer 1.0.2 exactly, and the drawn geometry agrees to within 0.1 px per panel; the
 deliberate departures are listed in `references/plots.md`.
 
-`tmt-report/` and `dia-quant-output/` are discovered, listed, and documented structurally, but
-their column-level semantics are described from the FragPipe documentation rather than verified
-against real output. Feed a TMT and a DIA example through `selftest.py` and extend
-`parse_reports.py` with dedicated summarizers to close that gap.
+Not yet covered: glyco and open/offset searches (`Observed Modifications` is parsed but has no
+dedicated summarizer), and DIA-NN's `.speclib`/`.parquet` outputs, which are listed but not read.

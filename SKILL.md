@@ -15,7 +15,7 @@ the skill, so always prefix it — `python "<skill base>/scripts/check_fragpipe.
 fails with `can't open file`. Paths you *pass* to the scripts (`--workdir`, `--manifest`, data
 folders) are the user's own and are never rewritten.
 
-## Three facts that shape everything
+## Four facts that shape everything
 
 1. **Headless FragPipe always exits 0 — even when it fails.** Never use the exit code to decide
    whether a run worked. Success is the line `====ALL JOBS DONE IN <n> MINUTES====`; failure is
@@ -23,9 +23,10 @@ folders) are the user's own and are never rewritten.
    `ALL JOBS DONE`. `fragpipe_run.py` implements this and *its own* exit code is trustworthy.
 2. **Runs take minutes to many hours.** Always launch with Bash `run_in_background: true` and poll
    the status file. Never block a foreground tool call on a real run.
-3. **Where the reports land depends on the experiment names in the manifest.** Root of the workdir
-   for a single unnamed experiment; `<workdir>/<experiment>/` when experiments are named. See
-   `references/outputs.md`.
+3. **Where the reports land depends on the experiment names in the manifest, and which one is the
+   *answer* depends on the analysis type.** Root of the workdir for a single unnamed experiment;
+   `<workdir>/<experiment>/` when experiments are named. TMT, DIA, grouped DDA and single-run DDA
+   each have a different main result — see the table under "Reading the output".
 4. **Which FragPipe installation runs is never assumed.** Several versions are commonly installed
    at once. Detection defaults to the newest, but the folder is always confirmed with the user
    before a run — see Step 1 below.
@@ -128,7 +129,25 @@ python scripts/parse_reports.py --file .../psm.tsv --head 3       # sample rows
 Always run discovery first rather than assuming paths — the layout depends on the manifest and on
 which modules ran.
 
-The core reports, all tab-separated with one header row:
+**Which file is the result depends on the analysis type, and the wrong one fails silently** — it
+opens, the numbers look reasonable, and they answer a different question. `parse_reports.py` leads
+its output with the verdict (`Run type`, `MAIN RESULT ->`, and what *not* to use); follow it. The
+rule it applies, most specific first:
+
+| Analysis | Main result | Do not quantify from |
+|---|---|---|
+| **TMT + PTM enrichment** (`tmt-report/` has `single-site`/`multi-site`) | `tmt-report/abundance_single-site_*.tsv` and `ratio_single-site_*.tsv`, plus `multi-site` | `combined_*.tsv`; raw channel columns in `psm.tsv` |
+| **TMT** (`tmt-report/` exists) | `tmt-report/abundance_protein_*.tsv` and `ratio_protein_*.tsv` (also gene/peptide) | `combined_*.tsv`; raw channel columns in `psm.tsv` |
+| **DIA** (`dia-quant-output/` exists) | `dia-quant-output/abundance_protein_*.tsv`, plus gene/peptide and DIA-NN's `report.*_matrix.tsv` | root `psm/peptide/ion/protein.tsv` — those are the **spectral library** |
+| **DDA, experiments named** (`combined_*.tsv` exist) | `combined_protein.tsv`, then `combined_peptide.tsv` / `combined_modified_peptide.tsv` / `combined_ion.tsv` / `combined_site_*.tsv` | the per-experiment folders — same data, one sample at a time |
+| **DDA, single or unnamed experiment** | root `protein.tsv`, `peptide.tsv`, `ion.tsv`, `psm.tsv` | — |
+
+Two conventions decide whether the numbers come out right: **TMT-Integrator writes log2 with `NA`
+for missing** (do not log-transform again), while **DIA writes linear intensities with missing cells
+left empty** (an empty cell is not a zero). With more than one TMT plex, only the `ratio_*` tables
+are comparable across plexes. DIA sample columns are **full file paths**, not sample names.
+
+The per-experiment reports, all tab-separated with one header row:
 
 | File | One row per | Use it for |
 |---|---|---|
@@ -138,10 +157,12 @@ The core reports, all tab-separated with one header row:
 | `ion.tsv` | peptide ion (sequence + mods + charge) | precursor-level quant input |
 | `protein.tsv` | protein group | protein IDs, coverage, per-group quant |
 | `combined_*.tsv` | as above, across experiments | cross-sample comparison and quant matrices |
+| `combined_site_<AA>_<mass>.tsv` | modification site | per-site localization probability and intensity |
 
 For column-by-column meaning, the per-experiment vs. root layout rule, and how to filter decoys and
 contaminants, read `references/outputs.md`. For TMT (`tmt-report/`) and DIA-NN
-(`dia-quant-output/`), read `references/outputs.md#tmt-report` and `#dia-quant-output`.
+(`dia-quant-output/`), read `references/outputs.md#tmt-report` and `#dia-quant-output` — both list
+the real columns per level, including the `ProteinID` / `Protein ID` spelling trap in TMT.
 
 Reports are already FDR-filtered (1% by default) and, unless `phi-report.print-decoys=true`, decoys
 are already removed — do not re-filter by q-value without checking, and do not report decoy counts

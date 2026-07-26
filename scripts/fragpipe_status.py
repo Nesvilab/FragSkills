@@ -110,13 +110,21 @@ def render(snap: dict, verbose: bool) -> str:
     outputs = snap.get("outputs")
     if outputs and not outputs.get("error"):
         found = [(k, outputs[k]) for k in
-                 ("experiments", "report_files", "combined_files", "tmt_report",
-                  "dia_quant") if outputs.get(k)]
+                 ("experiments", "report_files", "combined_files",
+                  "combined_site_files", "tmt_report", "dia_quant")
+                 if outputs.get(k)]
         if found:
             lines.append("")
             lines.append("Outputs:")
             for key, val in found:
-                lines.append("  %-16s %s" % (key + ":", _brief(val)))
+                lines.append("  %-20s %s" % (key + ":", _brief(val)))
+        cls = outputs.get("classification")
+        if cls and cls.get("main_files"):
+            main = [f for f in cls["main_files"] if f.get("role") == "main"]
+            lines.append("  %-20s %s" % ("run type:", cls.get("label", "")))
+            if main:
+                lines.append("  %-20s %s" % ("start with:", main[0]["name"]))
+                lines.append("  %-20s %s" % ("", cls.get("main_dir") or ""))
         for note in outputs.get("notes") or []:
             lines.append("")
             lines.append("NOTE: %s" % note)

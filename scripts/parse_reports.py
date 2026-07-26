@@ -27,10 +27,15 @@ Output layout FragPipe uses (see references/outputs.md):
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
 from typing import Dict, Iterator, List, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import quant_matrix as qm  # noqa: E402
+import run_type  # noqa: E402
 
 #: Per-experiment report files produced by Philosopher / IonQuant.
 REPORT_FILES = ("psm.tsv", "peptide.tsv", "modified_peptide.tsv", "ion.tsv",
@@ -38,13 +43,24 @@ REPORT_FILES = ("psm.tsv", "peptide.tsv", "modified_peptide.tsv", "ion.tsv",
 #: Multi-experiment summaries, always written to the workdir root.
 COMBINED_FILES = ("combined_peptide.tsv", "combined_modified_peptide.tsv",
                   "combined_ion.tsv", "combined_protein.tsv")
+#: Site-level matrices IonQuant writes one per localised modification, named
+#: after the residue and delta mass: ``combined_site_M_15.9949.tsv``.
+COMBINED_SITE_GLOB = "combined_site_*.tsv"
 #: Sub-directories holding quantification output for specific workflows.
 TMT_DIR = "tmt-report"
 DIA_QUANT_DIR = "dia-quant-output"
 #: Other artefacts worth pointing at.
 AUX_FILES = ("fragpipe.workflow", "fragpipe-files.fp-manifest", "fragger.params",
-             "filter.log", "sdrf.tsv", "library.tsv", "combined.prot.xml",
-             "protein.fas", "msbooster_params.txt")
+             "fragger_dia.params", "filter.log", "sdrf.tsv", "library.tsv",
+             "combined.prot.xml", "protein.fas", "msbooster_params.txt",
+             "experiment_annotation.tsv", "tmt-integrator-conf.yml",
+             "msstats.csv", "msstats_ptm.csv", "reprint.int.tsv",
+             "reprint.spc.tsv", "fragpipe-report.html")
+
+#: Files big enough that counting their rows is not free.  ``report.tsv`` runs
+#: to hundreds of MB on a real DIA study, and its row count (precursors x runs)
+#: is not a number anyone acts on, so the summary reports its size instead.
+_HUGE_MB = 64
 
 _TRUE = {"true", "1", "yes"}
 
@@ -107,6 +123,7 @@ def discover(workdir: str) -> dict:
         "experiments": {},
         "report_files": {},
         "combined_files": {},
+        "combined_site_files": {},
         "tmt_report": {},
         "dia_quant": {},
         "aux_files": {},
@@ -115,6 +132,7 @@ def discover(workdir: str) -> dict:
     }
     if not os.path.isdir(workdir):
         inv["notes"].append("workdir does not exist")
+        inv["classification"] = run_type.classify(inv)
         return inv
 
     # Root-level reports = the single unnamed experiment (or speclib/DIA-NN run).
@@ -143,6 +161,9 @@ def discover(workdir: str) -> dict:
         if os.path.isfile(p):
             inv["combined_files"][name] = p
 
+    for p in sorted(glob.glob(os.path.join(workdir, COMBINED_SITE_GLOB))):
+        inv["combined_site_files"][os.path.basename(p)] = p
+
     tmt_dir = os.path.join(workdir, TMT_DIR)
     if os.path.isdir(tmt_dir):
         inv["tmt_report"] = {f: os.path.join(tmt_dir, f)
@@ -165,14 +186,13 @@ def discover(workdir: str) -> dict:
         if (f.startswith("log_") and f.endswith(".txt"))
         or f == "fragskills_run.log")
 
-    if not inv["experiments"]:
+    if not inv["experiments"] and not inv["tmt_report"] and not inv["dia_quant"]:
         inv["notes"].append(
             "No psm.tsv/protein.tsv found. Either the run has not reached the "
             "report stage, or 'Generate report' (phi-report.run-report) was off.")
-    if len(inv["experiments"]) > 1 and not inv["combined_files"]:
-        inv["notes"].append(
-            "Multiple experiments but no combined_*.tsv. Enable IonQuant, or "
-            "phi-report.pep-level-summary / prot-level-summary, to get them.")
+    # Derived, not discovered: which of the above is *the* result. Kept on the
+    # inventory so the status file and every caller see the same verdict.
+    inv["classification"] = run_type.classify(inv)
     return inv
 
 
@@ -182,6 +202,9 @@ def discover(workdir: str) -> dict:
 def summarize(path: str) -> dict:
     """Statistics for a single report file, chosen by its base name."""
     base = os.path.basename(path).lower()
+    if qm.is_matrix(path):
+        return dict(qm.summarize_matrix(path), size_bytes=os.path.getsize(path),
+                    columns=read_header(path))
     info = {"file": path, "rows": 0, "size_bytes": os.path.getsize(path),
             "columns": read_header(path)}
     if base == "psm.tsv":
@@ -326,13 +349,29 @@ def _summarize_protein(path: str) -> dict:
             "total_unique_peptides": total_unique_peptides}
 
 
-#: Suffixes IonQuant/Philosopher append to per-sample quant columns.
-_QUANT_SUFFIXES = (" Intensity", " MaxLFQ Intensity", " Spectral Count",
-                   " Unique Spectral Count", " Total Spectral Count",
-                   " Razor Spectral Count", " Unique Intensity",
-                   " Total Intensity", " Razor Intensity",
-                   " MaxLFQ Unique Intensity", " MaxLFQ Total Intensity",
-                   " MaxLFQ Razor Intensity", " Match Type")
+#: Suffixes IonQuant/Philosopher append to per-sample quant columns.  Matched
+#: longest first, so ``x MaxLFQ Intensity`` yields the sample ``x`` and not
+#: ``x MaxLFQ``.
+_QUANT_SUFFIXES = tuple(sorted((
+    " Intensity", " MaxLFQ Intensity", " Spectral Count",
+    " Unique Spectral Count", " Total Spectral Count",
+    " Razor Spectral Count", " Unique Intensity",
+    " Total Intensity", " Razor Intensity",
+    " MaxLFQ Unique Intensity", " MaxLFQ Total Intensity",
+    " MaxLFQ Razor Intensity", " Match Type",
+    # ion-level columns
+    " Apex Retention Time", " Apex Scan Number", " Retention Time Start",
+    " Retention Time End", " Retention Time FWHM", " Traced Scans",
+    " Localization",
+    # combined_site_*.tsv
+    " Localization Probability",
+), key=len, reverse=True))
+
+
+#: These look exactly like per-sample columns but hold an across-experiment
+#: aggregate: ``Combined Spectral Count`` is the total, ``Best Localization
+#: Probability`` (combined_site_*.tsv) the maximum. Neither prefix is a sample.
+_NOT_A_SAMPLE = frozenset(("Combined", "Best"))
 
 
 def _summarize_combined(path: str) -> dict:
@@ -341,8 +380,10 @@ def _summarize_combined(path: str) -> dict:
     for col in header:
         for suf in _QUANT_SUFFIXES:
             if col.endswith(suf) and len(col) > len(suf):
-                samples.add(col[: -len(suf)])
-                measures.add(suf.strip())
+                name = col[: -len(suf)]
+                if name not in _NOT_A_SAMPLE:
+                    samples.add(name)
+                    measures.add(suf.strip())
                 break
     return {"rows": count_rows(path),
             "samples": sorted(samples),
@@ -350,23 +391,44 @@ def _summarize_combined(path: str) -> dict:
             "quant_measures": sorted(measures)}
 
 
+def _summarize_quant_dir(files: Dict[str, str]) -> dict:
+    """Summarize one of the quant folders, matrix-aware and size-aware."""
+    out: Dict[str, dict] = {}
+    for name, p in sorted(files.items()):
+        if not name.lower().endswith((".tsv", ".txt")):
+            continue
+        if qm.is_matrix(p):
+            out[name] = qm.summarize_matrix(p)
+        elif os.path.getsize(p) > _HUGE_MB * 1024 * 1024:
+            out[name] = {"file": p, "rows": None,
+                         "size_mb": round(os.path.getsize(p) / 1048576.0, 1),
+                         "columns": read_header(p),
+                         "note": "not scanned - over %d MB" % _HUGE_MB}
+        else:
+            out[name] = {"file": p, "rows": count_rows(p),
+                         "columns": read_header(p)}
+    return out
+
+
 def summarize_workdir(workdir: str) -> dict:
     inv = discover(workdir)
     out = {"workdir": inv["workdir"], "notes": inv["notes"],
-           "experiments": {}, "combined": {}, "tmt_report": {}, "dia_quant": {}}
+           "classification": inv["classification"],
+           "experiments": {}, "combined": {}, "tmt_report": {},
+           "dia_quant": {}, "dia_run_stats": []}
     for exp, files in inv["experiments"].items():
         out["experiments"][exp or "(root)"] = {
             name: summarize(p) for name, p in sorted(files.items())}
     for name, p in sorted(inv["combined_files"].items()):
         out["combined"][name] = summarize(p)
-    for name, p in sorted(inv["tmt_report"].items()):
-        if name.lower().endswith(".tsv"):
-            out["tmt_report"][name] = {"file": p, "rows": count_rows(p),
-                                       "columns": read_header(p)}
-    for name, p in sorted(inv["dia_quant"].items()):
-        if name.lower().endswith((".tsv", ".txt")):
-            out["dia_quant"][name] = {"file": p, "rows": count_rows(p),
-                                      "columns": read_header(p)}
+    for name, p in sorted(inv["combined_site_files"].items()):
+        out["combined"][name] = summarize(p)
+    out["tmt_report"] = _summarize_quant_dir(inv["tmt_report"])
+    out["dia_quant"] = _summarize_quant_dir(inv["dia_quant"])
+
+    stats = inv["dia_quant"].get(qm.DIANN_STATS)
+    if stats:
+        out["dia_run_stats"] = qm.stats_overview(qm.read_stats(stats))
     return out
 
 
@@ -375,15 +437,24 @@ def summarize_workdir(workdir: str) -> dict:
 # --------------------------------------------------------------------------
 def render_inventory(inv: dict) -> str:
     L = ["FragPipe output: %s" % inv["workdir"], ""]
+    if not os.path.isdir(inv["workdir"]):
+        L.append("ERROR: this directory does not exist.")
+        return "\n".join(L)
+    L.append(run_type.render(inv["classification"]))
+    L.append("")
+    L.append("-" * 70)
+    L.append("")
     if inv["experiments"]:
         L.append("Experiments (%d):" % len(inv["experiments"]))
         for exp, files in inv["experiments"].items():
             L.append("  %-24s %s" % (exp or "(root / single experiment)",
                                      ", ".join(sorted(files))))
-    if inv["combined_files"]:
+    if inv["combined_files"] or inv["combined_site_files"]:
         L.append("")
         L.append("Combined (multi-experiment) reports:")
         for n, p in sorted(inv["combined_files"].items()):
+            L.append("  %s" % p)
+        for n, p in sorted(inv["combined_site_files"].items()):
             L.append("  %s" % p)
     if inv["tmt_report"]:
         L.append("")
@@ -412,7 +483,9 @@ _HIDE = {"file", "columns", "size_bytes", "spectrum_files", "organisms", "sample
 
 
 def render_summary(summary: dict) -> str:
-    L = ["FragPipe results: %s" % summary["workdir"]]
+    L = ["FragPipe results: %s" % summary["workdir"], ""]
+    if summary.get("classification"):
+        L.append(run_type.render(summary["classification"]))
     for exp, files in summary["experiments"].items():
         L.append("")
         L.append("=== experiment: %s ===" % exp)
@@ -439,9 +512,32 @@ def render_summary(summary: dict) -> str:
         if summary.get(section):
             L.append("")
             L.append("=== %s ===" % label)
+            width = max(len(n) for n in summary[section])
             for name, info in summary[section].items():
-                L.append("  %-40s %s rows, %d columns"
-                         % (name, info["rows"], len(info["columns"])))
+                if info.get("sample_count"):
+                    L.append("  %-*s %7s rows x %2d samples   %s values, "
+                             "%s%% complete"
+                             % (width, name, info["rows"], info["sample_count"],
+                                "log2" if info.get("log2") else "linear",
+                                info.get("complete_pct")))
+                    if info.get("empty_samples"):
+                        L.append("  %-*s   EMPTY in every row: %s"
+                                 % (width, "", ", ".join(info["empty_samples"])))
+                elif info.get("rows") is None:
+                    L.append("  %-*s %s" % (width, name,
+                                            info.get("note", "not scanned")))
+                else:
+                    L.append("  %-*s %7s rows, %d columns"
+                             % (width, name, info["rows"],
+                                len(info.get("columns") or [])))
+
+    if summary.get("dia_run_stats"):
+        L.append("")
+        L.append("=== per-run identifications (report.stats.tsv) ===")
+        for r in summary["dia_run_stats"]:
+            L.append("  %-40s %8s precursors, %6s protein groups"
+                     % (r.get("Run", "?"), r.get("Precursors.Identified", "?"),
+                        r.get("Proteins.Identified", "?")))
     for note in summary.get("notes") or []:
         L.append("")
         L.append("NOTE: %s" % note)
