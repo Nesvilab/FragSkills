@@ -105,7 +105,9 @@ if exist "!TARGET!" (
     if "!IS_JUNCTION!"=="1" (
         call :junction_target "!TARGET!"
         if /i "!LINK_TARGET!"=="%SOURCE_DIR%" (
-            call :ok "already linked to this folder - nothing to do"
+            call :ok "already linked to this folder"
+            REM The link is live, but the commands are copies -- refresh them.
+            call :install_commands
             goto finish
         )
     )
@@ -157,6 +159,8 @@ if not exist "!TARGET!\SKILL.md" (
     goto finish
 )
 call :ok "verified !TARGET!\SKILL.md"
+
+call :install_commands
 
 REM --- check Python -----------------------------------------------------------
 set "PY="
@@ -217,6 +221,16 @@ if not "!IS_JUNCTION!"=="1" (
 call :remove_target
 if errorlevel 1 goto finish
 call :ok "removed !TARGET!"
+REM Only the default install owns the shared commands; a --name install never
+REM had them, so removing it must leave them alone.
+if /i "%SKILL_NAME%"=="fragskills" (
+    for %%I in ("!SKILLS_DIR!") do set "CLAUDE_DIR=%%~dpI"
+    set "COMMANDS_DIR=!CLAUDE_DIR!commands"
+    if exist "!COMMANDS_DIR!\fragskills-*.md" (
+        del /Q "!COMMANDS_DIR!\fragskills-*.md" >nul 2>&1
+        call :ok "removed the /fragskills-* commands from !COMMANDS_DIR!"
+    )
+)
 goto finish
 
 REM ============================ subroutines ===================================
@@ -245,6 +259,31 @@ if "!IS_JUNCTION!"=="" (
     REM Fallback for systems where fsutil is unavailable.
     for /f "delims=" %%J in ('dir /a:l /b "%~dp1." 2^>nul ^| findstr /i /x /c:"%~nx1"') do set "IS_JUNCTION=1"
 )
+exit /b 0
+
+REM Copy the /fragskills-* slash commands next to the skill. Copied rather than
+REM linked: Claude Code reads every *.md directly inside commands\, and per-file
+REM symlinks need Developer Mode on Windows. Because they are copies, this runs
+REM on every install -- including "already linked" -- so edits take effect.
+:install_commands
+if not exist "%SOURCE_DIR%\commands\" exit /b 0
+REM The commands address the skill by its default path, so under --name they
+REM would point at a skill that is not there. Better to skip and say so.
+if /i not "%SKILL_NAME%"=="fragskills" (
+    call :warn "skipped the /fragskills-* commands: they load !SKILLS_DIR!\fragskills, not %SKILL_NAME%"
+    exit /b 0
+)
+for %%I in ("!SKILLS_DIR!") do set "CLAUDE_DIR=%%~dpI"
+set "COMMANDS_DIR=!CLAUDE_DIR!commands"
+if not exist "!COMMANDS_DIR!\" mkdir "!COMMANDS_DIR!" 2>nul
+REM Prune first, so a command deleted or renamed upstream does not linger here.
+if exist "!COMMANDS_DIR!\fragskills-*.md" del /Q "!COMMANDS_DIR!\fragskills-*.md" >nul 2>&1
+set "CMD_COUNT=0"
+for %%F in ("%SOURCE_DIR%\commands\fragskills-*.md") do (
+    copy /Y "%%~fF" "!COMMANDS_DIR!\" >nul 2>&1
+    if not errorlevel 1 set /a CMD_COUNT+=1
+)
+if not "!CMD_COUNT!"=="0" call :ok "installed !CMD_COUNT! /fragskills-* commands into !COMMANDS_DIR!"
 exit /b 0
 
 REM Sets LINK_TARGET to the path a junction points at.

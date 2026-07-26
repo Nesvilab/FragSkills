@@ -421,6 +421,39 @@ def test_report(workdir: str) -> None:
               "12:0" in clock or ":00" in clock)
 
 
+def test_commands() -> None:
+    """The slash commands must stay dispatchers, and must not dangle.
+
+    They point at SKILL.md sections by name rather than restating the rules, so
+    the one way they can rot is a heading being renamed underneath them.
+    """
+    print("\n[10] slash commands")
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cmd_dir = os.path.join(repo, "commands")
+    if not os.path.isdir(cmd_dir):
+        print("  SKIP  no commands/ directory")
+        return
+
+    with open(os.path.join(repo, "SKILL.md"), "r", encoding="utf-8") as fh:
+        skill = fh.read()
+    headings = set(re.findall(r"^## (.+)$", skill, re.M))
+
+    files = sorted(glob.glob(os.path.join(cmd_dir, "fragskills-*.md")))
+    check("commands are present", len(files) > 0, "%d found" % len(files))
+    for path in files:
+        name = os.path.basename(path)
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        check("%s has a description" % name,
+              bool(re.search(r"^description:\s*\S", text, re.M)))
+        check("%s stays a dispatcher, not a second copy of the docs" % name,
+              len(text) < 1500, "%d chars" % len(text))
+        check("%s loads the skill" % name, "fragskills" in text)
+        for section in re.findall(r'"([^"]+)" section', text):
+            check("%s points at a real SKILL.md heading" % name,
+                  section in headings, "'%s' is gone" % section)
+
+
 def _make_install(root: str, version: str) -> str:
     """Create a minimal but valid FragPipe install tree."""
     for sub in ("bin", "tools", "workflows", "lib"):
@@ -510,6 +543,7 @@ def main(argv=None) -> int:
     test_fragpipe_location()
     test_qc_series(workdir)
     test_report(workdir)
+    test_commands()
 
     print("\n%s" % ("-" * 60))
     if _failures:

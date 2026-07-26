@@ -110,6 +110,32 @@ remove_target() {
     fi
 }
 
+COMMANDS_DIR="${SKILLS_DIR%/skills}/commands"
+
+# Copy the /fragskills-* slash commands next to the skill. Copied rather than
+# linked: Claude Code reads every *.md directly inside commands/, and per-file
+# symlinks need privileges some platforms withhold. Because they are copies,
+# this runs on every install -- including "already linked" -- so edits land.
+install_commands() {
+    [ -d "$SOURCE_DIR/commands" ] || return 0
+    # The commands address the skill by its default path, so under --name they
+    # would point at a skill that is not there. Better to skip and say so.
+    if [ "$SKILL_NAME" != "fragskills" ]; then
+        warn "skipped the /fragskills-* commands: they load $SKILLS_DIR/fragskills, not $SKILL_NAME"
+        return 0
+    fi
+    mkdir -p "$COMMANDS_DIR"
+    # Prune first, so a command deleted or renamed upstream does not linger here.
+    rm -f "$COMMANDS_DIR"/fragskills-*.md
+    cmd_count=0
+    for f in "$SOURCE_DIR"/commands/fragskills-*.md; do
+        [ -f "$f" ] || continue
+        cp -f "$f" "$COMMANDS_DIR/" && cmd_count=$((cmd_count + 1))
+    done
+    [ "$cmd_count" -gt 0 ] && ok "installed $cmd_count /fragskills-* commands into $COMMANDS_DIR"
+    return 0
+}
+
 # --- uninstall ---------------------------------------------------------------
 if [ "$UNINSTALL" -eq 1 ]; then
     if [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
@@ -122,6 +148,13 @@ Refusing to delete it. Use --force if you are certain."
     fi
     remove_target
     ok "removed $TARGET"
+    # Only the default install owns the shared commands; a --name install never
+    # had them, so removing it must leave them alone.
+    if [ "$SKILL_NAME" = "fragskills" ] \
+       && ls "$COMMANDS_DIR"/fragskills-*.md >/dev/null 2>&1; then
+        rm -f "$COMMANDS_DIR"/fragskills-*.md
+        ok "removed the /fragskills-* commands from $COMMANDS_DIR"
+    fi
     exit 0
 fi
 
@@ -134,7 +167,8 @@ info ""
 
 if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
     if [ -L "$TARGET" ] && [ "$(readlink "$TARGET")" = "$SOURCE_DIR" ]; then
-        ok "already linked to this directory - nothing to do"
+        ok "already linked to this directory"
+        install_commands          # the link is live, but commands are copies
         exit 0
     fi
     if [ "$FORCE" -ne 1 ]; then
@@ -173,6 +207,8 @@ fi
 ok "installed via $installed_via"
 [ -f "$TARGET/SKILL.md" ] || die "install verification failed: $TARGET/SKILL.md is not readable"
 ok "verified $TARGET/SKILL.md"
+
+install_commands
 
 # --- check Python ------------------------------------------------------------
 PY=""

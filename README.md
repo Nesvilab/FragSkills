@@ -22,6 +22,26 @@ interpreting its output.
   checked panel by panel against the jar's output. The underlying series are also available as
   JSON/TSV for custom figures.
 
+## Commands
+
+Three slash commands, for the steps worth a typed shortcut:
+
+| Command | Does |
+|---|---|
+| `/fragskills-run <workdir>` | Launch a headless search in the background |
+| `/fragskills-status <workdir>` | Report progress, or why a run stopped |
+| `/fragskills-report <workdir>` | Build `fragpipe-report.html` and read the QC out loud |
+
+They are **dispatchers, not documentation** — four lines each, pointing at the matching section of
+`SKILL.md`. That keeps one source of truth: edit the skill, and the commands follow. Anything else
+is better asked in plain language ("why did the run in D:/run/out fail?", "build me a manifest from
+D:/data"); the skill triggers on that and covers the whole workflow.
+
+They live in `commands/` and are **copied** into `~/.claude/commands/` at install time, so re-run
+the installer after editing one — unlike the skill itself, which is linked and updates live. Each
+install prunes the previous copies first, so a deleted command does not linger. Installing under
+`--name` skips them, since they address the skill by its default name.
+
 ## Install
 
 Claude Code loads skills from `~/.claude/skills/<name>/`. Run the installer for your platform
@@ -90,6 +110,10 @@ directory that is not a FragSkills install.
 SKILL.md                      entry point Claude reads
 install.sh                    installer for Linux / macOS
 install.bat                   installer for Windows
+commands/                     four-line dispatchers into SKILL.md, not a second copy of it
+  fragskills-run.md           launch a headless run
+  fragskills-status.md        report progress
+  fragskills-report.md        build the QC report and interpret it
 references/
   running.md                  CLI flags, manifest/workflow formats, workflow selection
   outputs.md                  output layout rules + column reference for every report
