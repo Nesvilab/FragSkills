@@ -6,8 +6,9 @@ the report TSVs::
     python scripts/selftest.py --example I:/test_fragskills/dda
 
 It checks the log parser (full and mid-run), the success/failure decision, the
-output discovery, and the report summaries.  Run it after changing any script,
-especially when adding TMT or DIA support.
+output discovery, the report summaries, the QC plot series, and the summary
+report generator.  Run it after changing any script, especially when adding TMT
+or DIA support.
 
 Exit code 0 = all checks passed.
 """
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import re
 import sys
 import tempfile
 
@@ -251,6 +253,174 @@ def test_fragpipe_location() -> None:
           fr.EXIT_NEEDS_CONFIRMATION == 3 and fr.EXIT_NO_FRAGPIPE == 4)
 
 
+def test_qc_series(workdir: str) -> None:
+    """The plot data must match what FragSummarizer would draw."""
+    print("\n[8] QC plot series")
+    import qc_data
+
+    data = qc_data.collect(workdir)
+    check("a log was located", bool(data.get("log")))
+    check("task runtimes parsed", len(data.get("runtimes", [])) > 0,
+          "%d tasks" % len(data.get("runtimes", [])))
+    check("MSFragger is expanded into sub-stages, not left as one bar",
+          all(r["task"] != "MSFragger" for r in data.get("runtimes", [])))
+    check("Percolator appears at most once",
+          [r["task"] for r in data.get("runtimes", [])].count("Percolator") <= 1)
+    check("total runtime parsed", data.get("total_minutes") is not None,
+          str(data.get("total_minutes")))
+    if data.get("runtimes") and data.get("total_minutes"):
+        plotted = sum(r["minutes"] for r in data["runtimes"])
+        check("plotted tasks sum to no more than the reported total",
+              plotted <= data["total_minutes"] + 0.05,
+              "%.2f vs %.2f" % (plotted, data["total_minutes"]))
+
+    runs = data.get("runs", {})
+    check("per-run series were built", len(runs) > 0, "%d runs" % len(runs))
+    for name, series in sorted(runs.items()):
+        check("%s: retention converted to minutes" % name[:24],
+              "retention" not in series or series["retention"]["max"] < 1000,
+              str(series.get("retention", {}).get("max")))
+        for key in ("peptide_length", "charge", "missed_cleavages"):
+            if key not in series:
+                continue
+            s = series[key]
+            if s["type"] == "histogram":
+                check("%s: %s bins are well formed" % (name[:24], key),
+                      len(s["bin_edges"]) == len(s["counts"]) + 1)
+                check("%s: %s counts every PSM once" % (name[:24], key),
+                      sum(s["counts"]) == s["n"])
+            else:
+                check("%s: %s counts every PSM once" % (name[:24], key),
+                      sum(s["counts"]) == s["n"])
+        sc = series.get("mz_vs_delta_mass")
+        if sc:
+            check("%s: delta-mass scatter is inside the 0.5 Da window" % name[:24],
+                  all(abs(y) < qc_data.DELTA_MASS_WINDOW for y in sc["y"]))
+            check("%s: scatter is downsampled" % name[:24],
+                  len(sc["x"]) <= qc_data.SCATTER_POINTS * 2 or sc["downsampled_by"] > 1)
+        break  # one run is enough for a smoke test
+
+    overall = data.get("overall", {})
+    if overall and runs:
+        raw = sum(s.get("psms", 0) for s in runs.values())
+        check("overall distributions are deduplicated, not summed",
+              overall["charge"]["n"] <= raw,
+              "%d vs %d PSMs" % (overall["charge"]["n"], raw))
+        check("peptide length uses one bin per integer",
+              all(round(b - a, 6) == 1.0 for a, b in
+                  zip(overall["peptide_length"]["bin_edges"],
+                      overall["peptide_length"]["bin_edges"][1:])))
+
+    mc = data.get("mass_calibration", [])
+    if mc:
+        check("mass calibration rows carry both levels and both states",
+              all(k in mc[0] for k in ("ms1_old_median", "ms1_calibrated_median",
+                                       "ms2_old_median", "ms2_calibrated_median")))
+        check("run indices resolve to file names",
+              any(not r["run"].isdigit() for r in mc),
+              str(mc[0]["run"]))
+
+    pf = data.get("percolator_features", {})
+    if pf:
+        feats = next(iter(pf.values()))
+        check("feature weights are sorted by absolute value",
+              [abs(f["mean_weight"]) for f in feats]
+              == sorted((abs(f["mean_weight"]) for f in feats), reverse=True))
+        check("all-zero features are dropped",
+              all(any(v != 0 for v in f["splits"]) for f in feats))
+
+    # Sampling must preserve the shape while scaling the counts down.
+    sampled = qc_data.collect(workdir, stride=10)
+    if runs and sampled.get("runs"):
+        name = sorted(runs)[0]
+        check("stride sampling reduces the PSM count",
+              sampled["runs"][name]["psms"] < runs[name]["psms"])
+        check("stride sampling is flagged in the notes",
+              any("stride" in n for n in sampled.get("notes", [])))
+
+
+def test_report(workdir: str) -> None:
+    """The HTML report: valid SVG, sane geometry, every page present."""
+    print("\n[9] summary report")
+    import xml.etree.ElementTree as ET
+
+    import make_report
+    import qc_data
+    import svg_charts as svg
+
+    data = qc_data.collect(workdir)
+    html = make_report.build_html(data, embed_images=False)
+
+    check("report is produced", len(html) > 5000, "%d chars" % len(html))
+    check("it is one self-contained document",
+          html.startswith("<!DOCTYPE html>") and html.rstrip().endswith("</html>"))
+    check("no external resources are referenced",
+          "http://" not in html.replace("http://www.w3.org/2000/svg", "")
+          and "https://" not in html)
+
+    svgs = re.findall(r"<svg.*?</svg>", html, re.DOTALL)
+    check("charts were drawn", len(svgs) > 5, "%d panels" % len(svgs))
+
+    malformed = out_of_canvas = negative = 0
+    for chunk in svgs:
+        try:
+            root = ET.fromstring(chunk)
+        except ET.ParseError:
+            malformed += 1
+            continue
+        vb = [float(v) for v in (root.get("viewBox") or "0 0 0 0").split()]
+        for el in root.iter():
+            if not el.tag.endswith("}rect"):
+                continue
+            x, y = float(el.get("x")), float(el.get("y"))
+            w, h = float(el.get("width")), float(el.get("height"))
+            if w < 0 or h < 0:
+                negative += 1
+            if x < -1 or y < -1 or x + w > vb[2] + 1 or y + h > vb[3] + 1:
+                out_of_canvas += 1
+    check("every chart is well-formed XML", malformed == 0, "%d bad" % malformed)
+    check("no bar has a negative size", negative == 0, "%d bad" % negative)
+    check("no bar is drawn outside its canvas", out_of_canvas == 0,
+          "%d bad" % out_of_canvas)
+
+    pages = re.findall(r'<h2[^>]*>(.*?)(?:<span|</h2>)', html, re.DOTALL)
+    check("the overall statistics page is present",
+          any("Overall Statistics" in p for p in pages), str(pages[:4]))
+    check("one page per run",
+          sum(1 for p in pages if p.endswith(" Statistics")
+              and "Overall" not in p) == len(data.get("runs", {})),
+          str(len(data.get("runs", {}))))
+
+    # Per-run bars must be used exactly when per-experiment counts say nothing.
+    per_run = data.get("ids_per_run") or []
+    if len(data.get("ids", [])) < 2 and len(per_run) > 1:
+        check("collapsed layouts fall back to per-run ID bars",
+              "IDs (per run)" in html)
+    elif data.get("ids"):
+        check("per-experiment ID bars are labelled as such",
+              "IDs (per experiment)" in html)
+
+    # Chart primitives on their own.
+    empty = svg.histogram({"counts": [], "bin_edges": []}, "t", "x")
+    check("an empty series degrades to a placeholder, not a crash",
+          "no-data" in empty)
+    hist = svg.histogram({"counts": [1, 2], "bin_edges": [0, 1, 2]}, "t", "x")
+    check("a two-bin histogram draws two bars", hist.count("<rect") == 2)
+    scale = svg.nice_scale(0, 97, 5)
+    check("axis ranges round outward", scale[1] >= 97 and scale[0] <= 0, str(scale))
+    check("HTML special characters are escaped",
+          svg.esc('a&b<c>"d') == "a&amp;b&lt;c&gt;&quot;d")
+
+    if data.get("runtimes"):
+        clock = svg.gantt(data["runtimes"],
+                          __import__("datetime").datetime(2026, 1, 1, 12, 0))
+        elapsed = svg.gantt(data["runtimes"], None)
+        check("the Gantt renders with and without a finish time",
+              clock.count("<rect") == elapsed.count("<rect") == len(data["runtimes"]))
+        check("a clock axis is used when the finish time is known",
+              "12:0" in clock or ":00" in clock)
+
+
 def _make_install(root: str, version: str) -> str:
     """Create a minimal but valid FragPipe install tree."""
     for sub in ("bin", "tools", "workflows", "lib"):
@@ -338,6 +508,8 @@ def main(argv=None) -> int:
     test_outputs(workdir)
     test_manifest_roundtrip()
     test_fragpipe_location()
+    test_qc_series(workdir)
+    test_report(workdir)
 
     print("\n%s" % ("-" * 60))
     if _failures:

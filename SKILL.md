@@ -9,6 +9,12 @@ FragPipe is a proteomics pipeline that chains MSFragger, MSBooster, Percolator/P
 ProteinProphet, Philosopher, IonQuant, TMT-Integrator, and DIA-NN. This skill drives it headless
 and reads what it produces.
 
+**Running the scripts:** every `python scripts/...` below is relative to **this skill's base
+directory**, printed when the skill loads. The shell's working directory is the user's project, not
+the skill, so always prefix it — `python "<skill base>/scripts/check_fragpipe.py"` — or the call
+fails with `can't open file`. Paths you *pass* to the scripts (`--workdir`, `--manifest`, data
+folders) are the user's own and are never rewritten.
+
 ## Three facts that shape everything
 
 1. **Headless FragPipe always exits 0 — even when it fails.** Never use the exit code to decide
@@ -146,6 +152,42 @@ For real analysis (joins, quant matrices, statistics) load the TSVs with pandas:
 `pd.read_csv(path, sep="\t")`. `parse_reports.py` is for orientation and QC, not for doing the
 science.
 
+## Summary report and QC plots
+
+FragPipe generates its QC report only from a GUI button, so **a headless run never produces one**.
+This skill builds it directly:
+
+```bash
+python scripts/make_report.py --workdir D:/run/out     # -> <workdir>/fragpipe-report.html
+```
+
+Seconds to run, and it needs **nothing but the run's own output** — no FragPipe installation, no
+Java, no pandas or matplotlib. It works on a copied results folder or a machine that has never had
+FragPipe on it. The page is self-contained (inline SVG, MSBooster PNGs embedded), so it can be
+emailed or archived alone: experiment design, runtime Gantt chart, overall and per-run PSM
+distributions, mass calibration before/after, Percolator feature weights, MSBooster plots. Offer it
+after any successful run. All it requires in the workdir is a `log_*.txt` and `psm.tsv`.
+
+This is a port of FragPipe's own report generators (`generate_reports_pdf.py` through 24.0, the
+FragSummarizer jar after), verified panel by panel against the jar's output. Where it deliberately
+differs, `references/plots.md` says so.
+
+When the user wants a *number*, a custom figure, one run out of many, or a cross-run comparison,
+skip the report and take the series directly:
+
+```bash
+python scripts/qc_data.py --workdir D:/run/out --list        # inventory
+python scripts/qc_data.py --workdir D:/run/out --tsv D:/qc   # tidy TSVs, or --json
+```
+
+Two derivations are easy to get wrong and silently change the numbers: `Retention` in `psm.tsv` is
+**seconds** while every plot shows minutes, and the overall distributions **deduplicate** on
+`(Spectrum, Modified Peptide, Peptide Length, Charge, Number of Missed Cleavages)`. `qc_data.py`
+handles both; do the same when working from `psm.tsv` directly.
+
+`references/plots.md` documents every panel, its source and derivation, what a healthy one looks
+like, and the log formats behind the runtime, mass-calibration and Percolator sections.
+
 ## When something goes wrong
 
 `references/troubleshooting.md` covers the common failures: file names FragPipe rejects, missing
@@ -157,4 +199,6 @@ error in a 1500-line log.
 - `references/running.md` — locating FragPipe, CLI flags, manifest and workflow formats, workflow
   selection, batch jobs
 - `references/outputs.md` — output layout rules and full column reference for every report
+- `references/plots.md` — the summary report: every panel, where its numbers come from, how to read
+  it, and how to rebuild any of it as a custom figure
 - `references/troubleshooting.md` — failure modes and diagnosis
