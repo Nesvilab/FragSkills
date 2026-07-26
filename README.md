@@ -15,7 +15,8 @@ interpreting its output.
   `Process '<name>' finished` lines, and publishes it to a JSON status file for polling.
 - Decides success correctly. Headless FragPipe calls `System.exit(0)` on both the success and the
   failure path, so the exit code is meaningless; the tools key off the stdout markers instead.
-- Discovers and summarizes the report TSVs, accounting for FragPipe's per-experiment output layout.
+- Discovers and summarizes every report — the per-experiment TSVs, the `combined_*` matrices, and
+  the TMT / DIA / DIA-NN quantification tables — accounting for FragPipe's output layout rules.
 - **Identifies which files are the actual result.** TMT, TMT+PTM, DIA, grouped DDA and single-run
   DDA each leave a different main table, next to several plausible-looking wrong ones. Discovery
   names the run type, ranks the files that answer it, and says explicitly what not to quantify from.
@@ -107,6 +108,60 @@ install.bat --uninstall
 Removing a link never touches the files it points at, and the installer refuses to delete a
 directory that is not a FragSkills install.
 
+## Reading a finished run
+
+The scripts also work on their own — no FragPipe, no Java, no installation, and they do not care
+whether the run was launched by this skill. Start here, on any results folder:
+
+```bash
+python scripts/parse_reports.py --workdir D:/run/out
+```
+
+```
+Run type    : TMT / isobaric labelling, site-level (PTM enrichment)
+Detected by : tmt-report/ is present with 10 files including site-level tables
+
+MAIN RESULT -> D:/run/out/tmt-report
+  * ratio_single-site_MD.tsv      log2 ratio vs the reference channel, single-site level - use this to compare across plexes
+    abundance_single-site_MD.tsv  log2 abundance, single-site level
+    ratio_multi-site_MD.tsv       log2 ratio vs the reference channel, multi-site level - use this to compare across plexes
+    abundance_multi-site_MD.tsv   log2 abundance, multi-site level
+    ratio_protein_MD.tsv          log2 ratio vs the reference channel, protein level - use this to compare across plexes
+    ...
+  (* start here)
+
+NOT the main result: combined_*.tsv
+    MS1 and spectral-count quant, not reporter ions. Useful for identification counts; not the TMT quantities.
+
+NOT the main result: psm.tsv channel columns
+    raw, unnormalised reporter intensities. TMT-Integrator normalises and rolls these up; use its output instead.
+```
+
+That last block is the point. A TMT run also writes `combined_protein.tsv`; a DIA run also writes
+`psm.tsv` and `protein.tsv` at the workdir root. Those files open fine and answer a *different*
+question, so the failure is silent. Precedence is `tmt-report/` → `dia-quant-output/` →
+`combined_*.tsv` → root reports.
+
+| Invocation | Gives |
+|---|---|
+| `--workdir DIR` | run type, ranked main results, full inventory |
+| `--workdir DIR --summary` | + rows, samples, completeness, ID counts, charge distributions |
+| `--file X.tsv --columns` | the schema |
+| `--file X.tsv --head 3` | the first rows as `key: value` blocks |
+| `--json` | any of the above as JSON; for `--workdir`, the verdict is under `classification` |
+
+Two conventions decide whether the numbers come out right, and `--summary` reports which one each
+file follows: **TMT-Integrator writes log2 values with `NA` for missing**, while **DIA writes linear
+intensities and leaves missing cells empty**. DIA sample columns are full paths to the spectral
+files, not sample names. `references/outputs.md` has the column reference for every level.
+
+Then the QC report and its underlying series:
+
+```bash
+python scripts/make_report.py --workdir D:/run/out            # -> fragpipe-report.html
+python scripts/qc_data.py     --workdir D:/run/out --tsv D:/qc   # or --json, --list
+```
+
 ## Layout
 
 ```
@@ -131,10 +186,10 @@ scripts/
   qc_data.py                  the data behind those plots as JSON/TSV, for custom figures
   svg_charts.py               dependency-free SVG chart primitives used by the report
   make_manifest.py            build .fp-manifest files, with FragPipe's naming rules enforced
-  parse_reports.py            discover and summarize psm/peptide/ion/protein/combined_* TSVs
-  run_type.py                 classify the run and rank the files that hold its result
+  parse_reports.py            classify the run, then discover and summarize every report it wrote
+  run_type.py                 which analysis this was, and which files hold its result
   quant_matrix.py             read TMT / DIA / DIA-NN quant matrices (log2 vs linear, NA vs empty)
-  selftest.py                 regression suite, run against a finished FragPipe output dir
+  selftest.py                 regression suite; takes one output directory per analysis type
 ```
 
 Scripts are pure standard-library Python 3.8+ — no pandas or numpy needed. Use pandas for actual
