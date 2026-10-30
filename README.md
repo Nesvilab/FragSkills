@@ -20,20 +20,36 @@ to results, and reads the output. `SKILL.md` is what Claude reads; this README i
 
 ## Install
 
-From this folder, with no administrator rights. Windows: `install.bat` (or double-click it).
-Linux / macOS: `./install.sh`.
+You need Claude Code, Python 3.8+, FragPipe and Git. Windows comes without Git: run
+`winget install --id Git.Git -e --source winget`, then open a new terminal. In Claude Code, type:
 
-This links the skill into `~/.claude/skills/fragskills`, so edits here take effect at once, and
-checks for Python 3.8+. Start a new Claude Code session to use it. The slash commands are copied,
-not linked, and are skipped under `--name`: re-run the installer after updating this folder (it
-is safe to repeat). Options: `--project [DIR]`, `--copy` (for a removable or network drive),
-`--name NAME`, `--force`, `--uninstall` (removes the link and commands, never this folder),
-`--help`.
+```
+/plugin install fragskills --marketplace Nesvilab/FragSkills
+```
+
+Or, in a terminal: `claude plugin install fragskills --marketplace Nesvilab/FragSkills`. Start a
+new Claude Code session to use it. If your Claude Code rejects `--marketplace`, run `claude update`,
+or install in two steps: `claude plugin marketplace add Nesvilab/FragSkills`, then
+`claude plugin install fragskills@nesvilab`.
+
+**Updates.** Turn on auto-update once: `/plugin`, Marketplaces tab, `nesvilab`, Enable
+auto-update. Claude Code then downloads each change in the background while you work, and loads
+it the next time you start Claude Code (or at once with `/reload-plugins`). To update by hand:
+`claude plugin update fragskills@nesvilab`, then start a new session.
+
+**Used `install.bat` or `install.sh` before?** Run it again with `--uninstall` from that folder
+first, or Claude Code shows the skill twice.
+
+**From a clone** (to edit the skill, or on a machine without network access): in this folder run
+`install.bat` (Windows) or `./install.sh` (Linux / macOS). It links the folder into
+`~/.claude/skills/fragskills`, so edits take effect at once, and checks for Python. Options:
+`--project [DIR]` (the commands then load only when Claude Code starts in DIR), `--copy` (for a
+removable or network drive), `--name NAME`, `--force`, `--uninstall`, `--help`.
 
 To stop the skill asking which FragPipe to use, set `FRAGPIPE_DIR`. Windows:
 `setx FRAGPIPE_DIR "C:\FragPipe\FragPipe-24.1-build36"`. Linux / macOS:
-`export FRAGPIPE_DIR=/opt/fragpipe`. `python scripts/check_fragpipe.py --list` shows the installs
-it finds.
+`export FRAGPIPE_DIR=/opt/fragpipe`. To see the installs the skill finds, ask Claude "which
+FragPipe installs can you find?".
 
 ## Use
 
@@ -42,19 +58,21 @@ or type a command:
 
 | Command | Does |
 |---|---|
-| `/fragskills-new <data folder> [workdir]` | Ask the questions, build and confirm the workflow, launch |
-| `/fragskills-run <workdir> [workflow] [manifest]` | Launch a headless run in the background |
-| `/fragskills-status <workdir>` | Report progress, or why a run stopped |
-| `/fragskills-report <workdir>` | Build the QC report and explain it |
+| `/fragskills:new <data folder> [workdir]` | Ask the questions, build and confirm the workflow, launch |
+| `/fragskills:run <workdir> [workflow] [manifest]` | Launch a headless run in the background |
+| `/fragskills:status <workdir>` | Report progress, or why a run stopped |
+| `/fragskills:report <workdir>` | Build the QC report and explain it |
 
-**A new analysis** (`/fragskills-new`) asks you to confirm the FragPipe install, answer the
+**A new analysis** (`/fragskills:new`) asks you to confirm the FragPipe install, answer the
 questions and check the proposed design (the channel sheet for TMT). It launches only after you
 confirm the table of every answer and changed parameter. In `<workdir>/fragskills-repro/`, edit
 only the design and channel sheets: `fragpipe_run.py` refuses a built workflow or manifest that
 changed after you confirmed it. To change other parameters, start from your own workflow with
-`/fragskills-run`.
+`/fragskills:run`.
 
-**Any finished FragPipe results folder** can be read, with no FragPipe or Java:
+**Any finished FragPipe results folder** can be read, with no FragPipe or Java. Ask Claude, or
+run the scripts yourself from a clone (the plugin keeps its copy under
+`~/.claude/plugins/cache/nesvilab/fragskills/<version>/`):
 
 ```bash
 python scripts/parse_reports.py --workdir D:/run/out              # run type and main result
@@ -71,6 +89,7 @@ with empty cells. `references/outputs.md` has every column.
 
 ```
 SKILL.md        the instructions Claude reads
+.claude-plugin/ the plugin manifest and the nesvilab marketplace that lists it
 commands/       the four slash commands, each pointing at a section of SKILL.md
 references/     running FragPipe, output formats, QC plots, troubleshooting
 docs/           workflow-builder-plan.md: how the builder's questions and routes were derived
@@ -97,7 +116,9 @@ python scripts/selftest.py --example D:/runs/dda D:/runs/tmt   # + finished runs
 
 `--example` takes finished output folders (each with its `log_*.txt`), one per analysis type. The
 builder test also rebuilds every shipped workflow from the FragPipe installs it finds
-(`--fragpipe-dir` to choose). Run it after any change.
+(`--fragpipe-dir` to choose). Run it after any change, and `claude plugin validate .` after
+changing `.claude-plugin/` (the only expected warnings are the missing version and icon: leaving
+out the version makes every commit an update).
 
 ## Status
 
@@ -109,3 +130,7 @@ builder test also rebuilds every shipped workflow from the FragPipe installs it 
   develop (25.0-build3).
 - Not yet covered: workflows beyond the shipped ones, glyco and open-search summaries, and DIA-NN
   `.speclib`/`.parquet` outputs (listed, not read).
+
+## License
+
+MIT. See `LICENSE`.

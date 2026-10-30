@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 #
-# Install FragSkills so Claude Code can find it.
+# Install FragSkills from this folder, so Claude Code can find it.
+#
+# Most users do not need this script: install the plugin instead, in Claude Code:
+#   /plugin install fragskills --marketplace Nesvilab/FragSkills
+# This script is for a clone you edit, or a machine without network access.
 #
 #   ./install.sh                    install for the current user (~/.claude/skills)
 #   ./install.sh --project          install into ./.claude/skills
@@ -38,7 +42,10 @@ die()  { printf '%s\n' "${C_RED}ERROR${C_OFF} $*" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
-Install FragSkills so Claude Code can find it.
+Install FragSkills from this folder, so Claude Code can find it.
+
+Most users do not need this script: install the plugin instead, in Claude Code:
+  /plugin install fragskills --marketplace Nesvilab/FragSkills
 
   ./install.sh                    install for the current user (~/.claude/skills)
   ./install.sh --project          install into ./.claude/skills
@@ -92,6 +99,14 @@ else
 fi
 TARGET="$SKILLS_DIR/$SKILL_NAME"
 
+UNINSTALL_HINT="\"$SOURCE_DIR/install.sh\" --uninstall"
+if [ "$SKILL_NAME" != "fragskills" ]; then
+    UNINSTALL_HINT="$UNINSTALL_HINT --name \"$SKILL_NAME\""
+fi
+if [ "$MODE" = "project" ]; then
+    UNINSTALL_HINT="$UNINSTALL_HINT --project \"$PROJECT_DIR\""
+fi
+
 # --- is an existing target safe to remove? -----------------------------------
 # Only ever remove a symlink, or a directory that really is a copy of this
 # skill.  Never touch anything else.
@@ -118,6 +133,24 @@ COMMANDS_DIR="${SKILLS_DIR%/skills}/commands"
 # this runs on every install -- including "already linked" -- so edits land.
 install_commands() {
     [ -d "$SOURCE_DIR/commands" ] || return 0
+    # Claude Code loads a folder in ~/.claude/skills, or in a trusted project's
+    # .claude/skills, that has .claude-plugin/plugin.json as a plugin, and the
+    # plugin brings the commands as /fragskills:new and so on. Copies would show
+    # them twice, so remove the ones an older install left.
+    if [ -f "$SOURCE_DIR/.claude-plugin/plugin.json" ]; then
+        if [ "$SKILL_NAME" = "fragskills" ] \
+           && ls "$COMMANDS_DIR"/fragskills-*.md >/dev/null 2>&1; then
+            rm -f "$COMMANDS_DIR"/fragskills-*.md
+            ok "removed the old /fragskills-* command copies from $COMMANDS_DIR"
+        fi
+        ok "the commands load with the skill: /fragskills:new, :run, :status, :report"
+        # Claude Code looks for plugins only in the folder it starts in.
+        if [ "$MODE" = "project" ]; then
+            info "      (when Claude Code starts in $PROJECT_DIR itself and you trust it;"
+            info "      from a subfolder only the skill loads: ask in plain language)"
+        fi
+        return 0
+    fi
     # The commands address the skill by its default path, so under --name they
     # would point at a skill that is not there. Better to skip and say so.
     if [ "$SKILL_NAME" != "fragskills" ]; then
@@ -133,6 +166,15 @@ install_commands() {
         cp -f "$f" "$COMMANDS_DIR/" && cmd_count=$((cmd_count + 1))
     done
     [ "$cmd_count" -gt 0 ] && ok "installed $cmd_count /fragskills-* commands into $COMMANDS_DIR"
+    return 0
+}
+
+# Both this folder and the marketplace plugin would load: the skill twice.
+warn_if_plugin_installed() {
+    if grep -qs 'fragskills@nesvilab' "$HOME/.claude/plugins/installed_plugins.json"; then
+        warn "the fragskills plugin is installed too, so Claude Code will show the skill twice.
+      Keep one: claude plugin uninstall fragskills@nesvilab, or $UNINSTALL_HINT"
+    fi
     return 0
 }
 
@@ -169,6 +211,7 @@ if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
     if [ -L "$TARGET" ] && [ "$(readlink "$TARGET")" = "$SOURCE_DIR" ]; then
         ok "already linked to this directory"
         install_commands          # the link is live, but commands are copies
+        warn_if_plugin_installed
         exit 0
     fi
     if [ "$FORCE" -ne 1 ]; then
@@ -209,6 +252,7 @@ ok "installed via $installed_via"
 ok "verified $TARGET/SKILL.md"
 
 install_commands
+warn_if_plugin_installed
 
 # --- check Python ------------------------------------------------------------
 PY=""
@@ -227,17 +271,17 @@ fi
 
 if [ "$installed_via" = "copy" ]; then
     warn "this is a copy - changes in $SOURCE_DIR will NOT appear here.
-      Re-run this installer to update."
+      To update, re-run the same command with --force added."
 fi
 
 info ""
 info "${C_BOLD}Done.${C_OFF} Start a new Claude Code session and ask it to run or read"
 info "a FragPipe analysis; it will pick the skill up automatically."
 info ""
-info "Optional: point the skill at your FragPipe install so you can omit --fragpipe"
-info "  export FRAGPIPE_BIN=/path/to/fragpipe/bin/fragpipe"
+info "Optional: set FRAGPIPE_DIR so the skill stops asking which FragPipe to use"
+info "  export FRAGPIPE_DIR=/opt/fragpipe"
 info ""
 info "Verify the skill end to end against a finished FragPipe run:"
 info "  ${PY:-python3} \"$TARGET/scripts/selftest.py\" --example /path/to/fragpipe/output"
 info ""
-info "Uninstall with: $0 --uninstall${PROJECT_DIR:+ --project \"$PROJECT_DIR\"}"
+info "Uninstall with: $UNINSTALL_HINT"

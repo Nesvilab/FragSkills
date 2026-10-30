@@ -1,0 +1,16 @@
+{
+  "name": "nesvilab",
+  "owner": {
+    "name": "Nesvilab",
+    "url": "https://github.com/Nesvilab"
+  },
+  "description": "Claude Code plugins from Nesvilab.",
+  "plugins": [
+    {
+      "name": "fragskills",
+      "source": "./",
+      "description": "Run FragPipe headless on your own computer, track the run, and read the results.",
+      "category": "science"
+    }
+  ]
+}

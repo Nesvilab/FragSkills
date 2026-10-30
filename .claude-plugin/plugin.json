@@ -1,0 +1,18 @@
+{
+  "name": "fragskills",
+  "description": "Run FragPipe (MSFragger, IonQuant, TMT-Integrator, DIA-NN) headless on your own computer: build the workflow from a few questions, track the run, and read the results. Needs Python 3.8+ and a local FragPipe install.",
+  "author": {
+    "name": "Nesvilab",
+    "url": "https://github.com/Nesvilab"
+  },
+  "homepage": "https://github.com/Nesvilab/FragSkills",
+  "repository": "https://github.com/Nesvilab/FragSkills",
+  "license": "MIT",
+  "keywords": ["proteomics", "mass-spectrometry", "fragpipe", "msfragger", "tmt", "dia"],
+  "commands": {
+    "new": {"source": "./commands/fragskills-new.md"},
+    "run": {"source": "./commands/fragskills-run.md"},
+    "status": {"source": "./commands/fragskills-status.md"},
+    "report": {"source": "./commands/fragskills-report.md"}
+  }
+}

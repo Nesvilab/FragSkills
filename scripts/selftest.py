@@ -676,7 +676,7 @@ def test_commands() -> None:
     They point at SKILL.md sections by name rather than restating the rules, so
     the one way they can rot is a heading being renamed underneath them.
     """
-    print("\n[10] slash commands")
+    print("\n[10] slash commands and the plugin manifest")
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cmd_dir = os.path.join(repo, "commands")
     if not os.path.isdir(cmd_dir):
@@ -701,6 +701,61 @@ def test_commands() -> None:
         for section in re.findall(r'"([^"]+)" section', text):
             check("%s points at a real SKILL.md heading" % name,
                   section in headings, "'%s' is gone" % section)
+    test_plugin_manifest(repo)
+
+
+def test_plugin_manifest(repo: str) -> None:
+    """The plugin files must keep the install line in the README working.
+
+    Users install with `/plugin install fragskills --marketplace Nesvilab/FragSkills`
+    and update as `fragskills@nesvilab`, so neither name may change. A version
+    would freeze updates until someone bumps it, so there must be none: each
+    commit is then a new version. The plugin lists its commands one by one, so
+    a command file missing from the list would never load. `claude plugin
+    validate .` checks the schema; this only checks what it cannot know.
+    """
+    def load(name):
+        try:
+            with open(os.path.join(repo, ".claude-plugin", name), "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError) as exc:
+            check("%s parses" % name, False, str(exc))
+            return None
+
+    plugin, market = load("plugin.json"), load("marketplace.json")
+    if plugin is None or market is None:
+        return
+    entries = [p for p in market.get("plugins", []) if p.get("name") == "fragskills"]
+    check("the plugin is named fragskills", plugin.get("name") == "fragskills",
+          str(plugin.get("name")))
+    check("the marketplace is named nesvilab and lists the plugin at the root",
+          market.get("name") == "nesvilab" and len(entries) == 1
+          and entries[0].get("source") in ("./", "."), json.dumps(entries))
+    check("no version is pinned, so every commit is an update",
+          "version" not in plugin and not any("version" in p for p in entries))
+    check("the license is MIT and LICENSE is there", plugin.get("license") == "MIT"
+          and os.path.isfile(os.path.join(repo, "LICENSE")))
+    listed = plugin.get("commands") or {}
+    given = [c.get("source", "") if isinstance(c, dict) else "" for c in listed.values()]
+    sources = {os.path.normpath(os.path.join(repo, s)) for s in given}
+    check("every listed command file exists, as a ./ path",
+          all(s.startswith("./") and "\\" not in s for s in given)
+          and all(os.path.isfile(s) for s in sources) and len(sources) == len(listed),
+          json.dumps(listed))
+    command_files = glob.glob(os.path.join(repo, "commands", "*.md"))
+    check("every command file is listed in plugin.json",
+          {os.path.normpath(f) for f in command_files} <= sources,
+          ", ".join(sorted(os.path.basename(f) for f in command_files
+                           if os.path.normpath(f) not in sources)))
+    with open(os.path.join(repo, "README.md"), "r", encoding="utf-8") as fh:
+        readme = fh.read()
+    check("the README installs and updates the plugin by these names",
+          "/plugin install fragskills --marketplace Nesvilab/FragSkills" in readme
+          and "fragskills@nesvilab" in readme)
+    old = re.findall(r"(?<![\w.])/fragskills-(?:new|run|status|report)\b(?!\.md)", readme)
+    check("the README names every command as the plugin does",
+          all("/fragskills:%s" % name in readme for name in listed) and not old,
+          ", ".join(old))
 
 
 def _make_install(root: str, version: str) -> str:

@@ -1,7 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
 REM ============================================================================
-REM  Install FragSkills so Claude Code can find it.
+REM  Install FragSkills from this folder, so Claude Code can find it.
+REM
+REM  Most users do not need this script: install the plugin instead, in Claude
+REM  Code:  /plugin install fragskills --marketplace Nesvilab/FragSkills
+REM  This script is for a clone you edit, or a machine without network access.
 REM
 REM    install.bat                  install for the current user
 REM    install.bat --project        install into .\.claude\skills
@@ -32,9 +36,12 @@ set "PAUSE_AT_END="
 
 REM Keep the window open only for a plain double-click from Explorer: that is a
 REM `cmd /c` invocation naming this script and passing no arguments. Anything
-REM with arguments is being scripted and must never block.
+REM with arguments is being scripted and must never block. Read cmdcmdline with
+REM delayed expansion: expanded at parse time, a ")" in this folder's path would
+REM close the block.
 if "%~1"=="" (
-    echo %cmdcmdline% | find /i "%~nx0" >nul 2>&1 && set "PAUSE_AT_END=1"
+    set "CMDLINE=!cmdcmdline!"
+    if /i not "!CMDLINE:%~nx0=!"=="!CMDLINE!" set "PAUSE_AT_END=1"
 )
 if defined FRAGSKILLS_NO_PAUSE set "PAUSE_AT_END="
 
@@ -91,6 +98,10 @@ if /i "%MODE%"=="project" (
 )
 set "TARGET=!SKILLS_DIR!\%SKILL_NAME%"
 
+set "UNINSTALL_HINT="!SELF!" --uninstall"
+if /i not "%SKILL_NAME%"=="fragskills" set "UNINSTALL_HINT=!UNINSTALL_HINT! --name "!SKILL_NAME!""
+if /i "%MODE%"=="project" set "UNINSTALL_HINT=!UNINSTALL_HINT! --project "!PROJECT_DIR!""
+
 if "%UNINSTALL%"=="1" goto do_uninstall
 
 REM --- install ----------------------------------------------------------------
@@ -108,6 +119,7 @@ if exist "!TARGET!" (
             call :ok "already linked to this folder"
             REM The link is live, but the commands are copies -- refresh them.
             call :install_commands
+            call :warn_if_plugin_installed
             goto finish
         )
     )
@@ -161,6 +173,7 @@ if not exist "!TARGET!\SKILL.md" (
 call :ok "verified !TARGET!\SKILL.md"
 
 call :install_commands
+call :warn_if_plugin_installed
 
 REM --- check Python -----------------------------------------------------------
 set "PY="
@@ -179,24 +192,20 @@ if not "!PY!"=="" (
 
 if "!INSTALLED_VIA!"=="copy" (
     call :warn "this is a copy - later changes in %SOURCE_DIR% will NOT appear here."
-    echo        Re-run this installer to update.
+    echo        To update, re-run the same command with --force added.
 )
 
 echo.
 echo Done. Start a new Claude Code session and ask it to run or read a FragPipe
 echo analysis; it will pick the skill up automatically.
 echo.
-echo Optional: point the skill at your FragPipe install so you can omit --fragpipe
-echo   setx FRAGPIPE_BIN "C:\FragPipe\FragPipe-24.1\bin\fragpipe.bat"
+echo Optional: set FRAGPIPE_DIR so the skill stops asking which FragPipe to use
+echo   setx FRAGPIPE_DIR "C:\FragPipe\FragPipe-24.1-build36"
 echo.
 echo Verify the skill end to end against a finished FragPipe run:
 echo   !PY! "!TARGET!\scripts\selftest.py" --example D:\path\to\fragpipe\output
 echo.
-if /i "%MODE%"=="project" (
-    echo Uninstall with: "!SELF!" --uninstall --project "!PROJECT_DIR!"
-) else (
-    echo Uninstall with: "!SELF!" --uninstall
-)
+echo Uninstall with: !UNINSTALL_HINT!
 goto finish
 
 REM --- uninstall --------------------------------------------------------------
@@ -267,14 +276,19 @@ REM symlinks need Developer Mode on Windows. Because they are copies, this runs
 REM on every install -- including "already linked" -- so edits take effect.
 :install_commands
 if not exist "%SOURCE_DIR%\commands\" exit /b 0
+for %%I in ("!SKILLS_DIR!") do set "CLAUDE_DIR=%%~dpI"
+set "COMMANDS_DIR=!CLAUDE_DIR!commands"
+REM Claude Code loads a folder in ~/.claude/skills, or in a trusted project's
+REM .claude\skills, that has .claude-plugin\plugin.json as a plugin, and the
+REM plugin brings the commands as /fragskills:new and so on. Copies would show
+REM them twice.
+if exist "%SOURCE_DIR%\.claude-plugin\plugin.json" goto commands_from_plugin
 REM The commands address the skill by its default path, so under --name they
 REM would point at a skill that is not there. Better to skip and say so.
 if /i not "%SKILL_NAME%"=="fragskills" (
     call :warn "skipped the /fragskills-* commands: they load !SKILLS_DIR!\fragskills, not %SKILL_NAME%"
     exit /b 0
 )
-for %%I in ("!SKILLS_DIR!") do set "CLAUDE_DIR=%%~dpI"
-set "COMMANDS_DIR=!CLAUDE_DIR!commands"
 if not exist "!COMMANDS_DIR!\" mkdir "!COMMANDS_DIR!" 2>nul
 REM Prune first, so a command deleted or renamed upstream does not linger here.
 if exist "!COMMANDS_DIR!\fragskills-*.md" del /Q "!COMMANDS_DIR!\fragskills-*.md" >nul 2>&1
@@ -284,6 +298,27 @@ for %%F in ("%SOURCE_DIR%\commands\fragskills-*.md") do (
     if not errorlevel 1 set /a CMD_COUNT+=1
 )
 if not "!CMD_COUNT!"=="0" call :ok "installed !CMD_COUNT! /fragskills-* commands into !COMMANDS_DIR!"
+exit /b 0
+
+REM Remove the copies an older install left, then say where the commands are.
+:commands_from_plugin
+if /i "%SKILL_NAME%"=="fragskills" if exist "!COMMANDS_DIR!\fragskills-*.md" (
+    del /Q "!COMMANDS_DIR!\fragskills-*.md" >nul 2>&1
+    call :ok "removed the old /fragskills-* command copies from !COMMANDS_DIR!"
+)
+call :ok "the commands load with the skill: /fragskills:new, :run, :status, :report"
+REM Claude Code looks for plugins only in the folder it starts in.
+if /i not "%MODE%"=="project" exit /b 0
+echo       (when Claude Code starts in !PROJECT_DIR! itself and you trust it;
+echo       from a subfolder only the skill loads: ask in plain language)
+exit /b 0
+
+REM Both this folder and the marketplace plugin would load: the skill twice.
+:warn_if_plugin_installed
+findstr /c:"fragskills@nesvilab" "%USERPROFILE%\.claude\plugins\installed_plugins.json" >nul 2>&1
+if errorlevel 1 exit /b 0
+call :warn "the fragskills plugin is installed too, so Claude Code will show the skill twice."
+echo        Keep one: claude plugin uninstall fragskills@nesvilab, or !UNINSTALL_HINT!
 exit /b 0
 
 REM Sets LINK_TARGET to the path a junction points at.
@@ -316,7 +351,10 @@ set "EXITCODE=1"
 exit /b 0
 
 :usage
-echo Install FragSkills so Claude Code can find it.
+echo Install FragSkills from this folder, so Claude Code can find it.
+echo.
+echo Most users do not need this script: install the plugin instead, in Claude Code:
+echo   /plugin install fragskills --marketplace Nesvilab/FragSkills
 echo.
 echo   install.bat                  install for the current user
 echo                                  (%%USERPROFILE%%\.claude\skills)
