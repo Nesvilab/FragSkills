@@ -233,7 +233,9 @@ Gotchas that cost time:
 
 ## dia-quant-output
 
-Produced when `diann.run-dia-nn=true`. Holds two families of files.
+Produced when `dia.run-dia-quant=true`, by DIA-NN (`diann.run-diann=true`) or, in the glyco DIA
+workflows, FragDIA (`fragdia.run-fragdia=true`); `diann.run-dia-nn=true` in FragPipe 24.0 and 24.1
+builds before 47. Holds two families of files.
 
 **FragPipe's tables** — `abundance_<level>_<tag>.tsv`, levels `protein`, `gene`, `peptide`,
 `modified-peptide`; `<tag>` records the quant settings (`MS2quant_Norm_maxlfq`). Identifier columns
