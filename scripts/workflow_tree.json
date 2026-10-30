@@ -1,0 +1,371 @@
+{
+  "schema": 1,
+  "about": "Questions and routes for build_workflow.py. Every shipped FragPipe workflow is one route: the answers that select it. Questions are asked in this order, each only when its 'when' holds, offering only the answers that still lead to a route. Keys are FragPipe 24.1 names; 'versions' maps them for other versions. See docs/workflow-builder-plan.md.",
+  "reference_version": "24.1",
+  "versions": {
+    "24.1": {
+      "validated": "FragPipe 24.1-build61",
+      "renames": {}
+    },
+    "25.0": {
+      "validated": "FragPipe develop 5ae846bf4 (25.0-build3); re-check at the 25.0 release",
+      "renames": {
+        "fragdia.mbr": "fragdia.plr",
+        "fragdia.mbr-global-q": "fragdia.plr-global-q",
+        "fragdia.ms1-tol": "fragdia.precursor-tol",
+        "fragdia.ms2-tol": "fragdia.fragment-tol",
+        "metaproteomics.cmd-line-opts": "fragmeta.cmd-line-opts",
+        "metaproteomics.delta-hyperscore": "fragmeta.delta-hyperscore",
+        "metaproteomics.host-name": "fragmeta.host-name",
+        "metaproteomics.iterations": "fragmeta.iterations",
+        "metaproteomics.min-pept-cnt-per-prot": "fragmeta.min-pept-cnt-per-prot",
+        "metaproteomics.min-uniq-pept-cnt": "fragmeta.min-uniq-pept-cnt",
+        "metaproteomics.min-uniq-pept-cnt-per-prot": "fragmeta.min-uniq-pept-cnt-per-prot",
+        "metaproteomics.qvalue": "fragmeta.qvalue",
+        "metaproteomics.run-metaproteomics": "fragmeta.run-fragmeta"
+      }
+    }
+  },
+  "questions": [
+    {
+      "id": "analysis",
+      "keep_in_nearest": true,
+      "text": "What kind of analysis is this?",
+      "answers": [
+        {"value": "standard", "label": "Standard: whole proteome, PTM enrichment, labelling, immunopeptidomics"},
+        {"value": "glyco", "label": "Glycoproteomics (N- or O-glycopeptides)"},
+        {"value": "specialised", "label": "A specialised FragPipe workflow, picked by name"}
+      ]
+    },
+    {
+      "id": "specialised",
+      "text": "Which specialised workflow?",
+      "when": {"analysis": ["specialised"]},
+      "answers": [
+        {"value": "chemprot-ABPP-diaTOP", "label": "Cysteine ABPP, IA-alkyne acid-cleavable tag, DIA quantification"},
+        {"value": "chemprot-ABPP-IADTB-diaPASEF", "label": "Cysteine ABPP with IA-DTB, diaPASEF quantification"},
+        {"value": "chemprot-ABPP-IADTB-TMT16", "label": "Cysteine ABPP with IA-DTB, TMT16 quantification"},
+        {"value": "chemprot-ABPP-ipIAA", "label": "Cysteine profiling with isotopic isopropyl iodoacetamide alkyne (light/heavy)"},
+        {"value": "chemprot-ABPP-isoDTB", "label": "Cysteine profiling with isoDTB tags (MS1 light/heavy)"},
+        {"value": "chemprot-ABPP-isoTOP", "label": "isoTOP-ABPP cysteine reactivity profiling"},
+        {"value": "chemprot-PAL", "label": "Photoaffinity labelling, mass-offset search"},
+        {"value": "citrullination", "label": "Citrullination, hybrid search with diagnostic ion"},
+        {"value": "DIA_DIA-Umpire_SpecLib_Quant", "label": "DIA through DIA-Umpire pseudo-MS/MS (Thermo/Sciex)"},
+        {"value": "Diagnostic-ion-mining", "label": "Open search with diagnostic ion mining"},
+        {"value": "FPOP", "label": "Fast photochemical oxidation of proteins (FPOP)"},
+        {"value": "Labile_ADP-ribosylation", "label": "ADP-ribosylation, labile search"},
+        {"value": "Labile_phospho", "label": "Phosphorylation, labile search"},
+        {"value": "Nonspecific-HLA-customDB-groupFDR", "label": "HLA peptidome, custom database with group FDR by protein evidence"},
+        {"value": "Nonspecific-HLA-glyco", "label": "Glycopeptides in HLA peptidome data"},
+        {"value": "Stellar-DDA", "label": "Stellar (unit resolution) DDA, or GPF-DIA searched as DDA"},
+        {"value": "Stellar-GPFDIA", "label": "Stellar (unit resolution) GPF-DIA"},
+        {"value": "XRNAX-MassOffset", "label": "XRNAX protein-RNA crosslinks, mass-offset search"}
+      ]
+    },
+    {
+      "id": "acquisition",
+      "keep_in_nearest": true,
+      "text": "How were the spectra acquired?",
+      "when": {"analysis": ["standard", "glyco"]},
+      "answers": [
+        {"value": "DDA", "label": "DDA"},
+        {"value": "DDA+", "label": "Wide-window DDA (WWA)"},
+        {"value": "DIA", "label": "DIA, including diaPASEF"}
+      ]
+    },
+    {
+      "id": "dia_format",
+      "keep_in_nearest": true,
+      "always_ask": true,
+      "text": "Which instrument produced the DIA runs?",
+      "when": {"acquisition": ["DIA"]},
+      "answers": [
+        {"value": "thermo_sciex", "label": "Thermo or Sciex (mzML or .raw)"},
+        {"value": "diapasef", "label": "Bruker timsTOF diaPASEF (.d)"}
+      ]
+    },
+    {
+      "id": "glyco_type",
+      "text": "Which glycopeptides?",
+      "when": {"analysis": ["glyco"]},
+      "answers": [
+        {"value": "N", "label": "N-glycopeptides"},
+        {"value": "O", "label": "O-glycopeptides"}
+      ]
+    },
+    {
+      "id": "glyco_activation",
+      "text": "How were the glycopeptides fragmented?",
+      "when": {"analysis": ["glyco"]},
+      "answers": [
+        {"value": "hcd", "label": "CID/HCD"},
+        {"value": "hybrid", "label": "Hybrid activation (EThcD and similar), one scan per precursor"},
+        {"value": "paired", "label": "Paired scans (HCD followed by ETD/EThcD), for O-Pair localization"}
+      ]
+    },
+    {
+      "id": "search",
+      "text": "What kind of database search?",
+      "when": {"analysis": ["standard", "glyco"]},
+      "answers": [
+        {"value": "closed", "label": "Closed search (tryptic, listed modifications)"},
+        {"value": "open", "label": "Open search (unknown mass shifts)"},
+        {"value": "mass_offset", "label": "Mass-offset search for common PTMs"},
+        {"value": "nonspecific_hla", "label": "Nonspecific search for HLA (MHC) peptides"},
+        {"value": "peptidome", "label": "Nonspecific search for endogenous peptides (plasma, CSF)"}
+      ]
+    },
+    {
+      "id": "quant",
+      "text": "How are the samples quantified?",
+      "when": {"analysis": ["standard", "glyco"]},
+      "answers": [
+        {"value": "none", "label": "No quantification, identification only"},
+        {"value": "LFQ", "label": "Label-free (IonQuant for DDA, DIA-NN for DIA)"},
+        {"value": "TMT", "label": "TMT or TMTpro"},
+        {"value": "iTRAQ", "label": "iTRAQ 4-plex"},
+        {"value": "SILAC", "label": "SILAC (light, medium, heavy)"}
+      ]
+    },
+    {
+      "id": "tmt_plex",
+      "keep_in_nearest": true,
+      "text": "How many TMT channels per plex?",
+      "when": {"quant": ["TMT"]},
+      "answers": [
+        {"value": "6", "label": "TMT 6-plex"},
+        {"value": "10", "label": "TMT 10-plex"},
+        {"value": "11", "label": "TMT 11-plex"},
+        {"value": "16", "label": "TMTpro 16-plex"},
+        {"value": "18", "label": "TMTpro 18-plex"},
+        {"value": "35", "label": "TMTpro 35-plex"}
+      ]
+    },
+    {
+      "id": "tmt_astral",
+      "text": "Were the TMTpro 18-plex data acquired on an Orbitrap Astral?",
+      "when": {"tmt_plex": ["18"]},
+      "answers": [
+        {"value": "yes", "label": "Yes, Orbitrap Astral"},
+        {"value": "no", "label": "No, another Orbitrap"}
+      ]
+    },
+    {
+      "id": "tmt_ms_level",
+      "text": "Where are the reporter ions measured?",
+      "when": {"quant": ["TMT"]},
+      "answers": [
+        {"value": "MS2", "label": "MS2 (high-resolution)"},
+        {"value": "MS3", "label": "MS3 (SPS-MS3; identification from ion-trap MS2)"}
+      ]
+    },
+    {
+      "id": "tmt_reference",
+      "always_ask": true,
+      "text": "How are the plexes normalised?",
+      "when": {"quant": ["TMT"]},
+      "answers": [
+        {"value": "virtual", "label": "Virtual reference (no pooled channel)"},
+        {"value": "bridge", "label": "A pooled bridge channel in every plex (sample names pool_1, pool_2, ...)"}
+      ]
+    },
+    {
+      "id": "ptm",
+      "always_ask": true,
+      "text": "Were the samples enriched for a PTM?",
+      "when": {"analysis": ["standard"], "search": ["closed", "nonspecific_hla"]},
+      "answers": [
+        {"value": "none", "label": "No enrichment"},
+        {"value": "phospho", "label": "Phosphorylation (STY)"},
+        {"value": "ubiquitin", "label": "Ubiquitination (K-GG remnant)"},
+        {"value": "acetyl", "label": "Lysine acetylation"}
+      ]
+    },
+    {
+      "id": "ubiq_tmt_lysine",
+      "text": "How should TMT and the GG remnant share lysines?",
+      "when": {"quant": ["TMT"], "ptm": ["ubiquitin"]},
+      "answers": [
+        {"value": "tmt_or_ubiq", "label": "A lysine carries either TMT or GG, not both (PTMProphet localization)"},
+        {"value": "tmt_plus_ubiq", "label": "GG lysines are also TMT-labelled (+343 or +418 combined)"},
+        {"value": "both", "label": "Allow both cases (TMT10 only; localization from MSFragger)"}
+      ]
+    },
+    {
+      "id": "acetyl_localization",
+      "text": "How should acetylation sites be localized?",
+      "when": {"quant": ["TMT"], "ptm": ["acetyl"]},
+      "answers": [
+        {"value": "ptmprophet", "label": "PTMProphet"},
+        {"value": "msfragger", "label": "MSFragger's own assignment (no PTMProphet)"}
+      ]
+    },
+    {
+      "id": "hla_alkylated",
+      "text": "Were cysteines alkylated (iodoacetamide)?",
+      "when": {"search": ["nonspecific_hla"]},
+      "answers": [
+        {"value": "no", "label": "No"},
+        {"value": "yes", "label": "Yes"}
+      ]
+    },
+    {
+      "id": "dia_astral",
+      "text": "Narrow-window Orbitrap Astral DIA?",
+      "when": {"search": ["nonspecific_hla"], "dia_format": ["thermo_sciex"]},
+      "answers": [
+        {"value": "yes", "label": "Yes, Astral narrow-window DIA"},
+        {"value": "no", "label": "No (DIA-Umpire pseudo-MS/MS)"}
+      ]
+    },
+    {
+      "id": "open_variant",
+      "text": "Full open search or a quick scan?",
+      "when": {"search": ["open"], "quant": ["none"], "analysis": ["standard"]},
+      "answers": [
+        {"value": "full", "label": "Full open search (localization-aware, parameter optimization)"},
+        {"value": "quick", "label": "Quick scan (narrower mass range, no optimization)"}
+      ]
+    },
+    {
+      "id": "dia_library",
+      "text": "How is the DIA spectral library built?",
+      "when": {"acquisition": ["DIA"]},
+      "answers": [
+        {"value": "empirical", "label": "Empirical: searched from these runs (DIA, and DDA or GPF-DIA library runs if any)"}
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "id": "fasta",
+      "kind": "path",
+      "text": "Protein database (FASTA). It must already contain decoys (rev_) and, ideally, contaminants (contam_).",
+      "key": "database.db-path",
+      "why": "No shipped workflow names a database; every run needs one."
+    },
+    {
+      "id": "remove_contaminants",
+      "kind": "choice",
+      "text": "Remove contaminant proteins (contam_ entries) from the reports?",
+      "key": "phi-report.remove-contaminants",
+      "default": "yes",
+      "answers": [
+        {"value": "yes", "label": "Yes: drop contaminant PSMs, peptides and proteins before quantification", "set": "true"},
+        {"value": "no", "label": "No: keep them, flagged in 'Is Contaminant' (FragPipe's default)", "set": "false"}
+      ],
+      "why": "Philosopher report --removecontam drops PSMs whose main protein is contam_, so IonQuant, TMT-Integrator and the DIA library never see them."
+    }
+  ],
+  "derived": [
+    {
+      "key": "tmtintegrator.channel_num",
+      "from": "tmt_plex",
+      "format": "TMT-{}",
+      "why": "Plex size within a reagent family is a run-level setting (TMT-6/10/11 share 229.163, TMTpro-16/18 share 304.207)."
+    }
+  ],
+  "channels": {
+    "TMT-6": ["126", "127N", "128C", "129N", "130C", "131N"],
+    "TMT-10": ["126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N"],
+    "TMT-11": ["126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N", "131C"],
+    "TMT-16": ["126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N", "131C", "132N", "132C", "133N", "133C", "134N"],
+    "TMT-18": ["126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N", "131C", "132N", "132C", "133N", "133C", "134N", "134C", "135N"],
+    "TMT-35": ["126", "127N", "127C", "128N", "128C", "129N", "129C", "130N", "130C", "131N", "131C", "132N", "132C", "133N", "133C", "134N", "134C", "135N", "127D", "128ND", "128CD", "129ND", "129CD", "130ND", "130CD", "131ND", "131CD", "132ND", "132CD", "133ND", "133CD", "134ND", "134CD", "135ND", "135CD"],
+    "iTRAQ-4": ["114", "115", "116", "117"]
+  },
+  "data_type_sets": {
+    "dda": {"allowed": ["DDA"], "default": "DDA"},
+    "wwa": {"allowed": ["DDA+"], "default": "DDA+"},
+    "dia": {"allowed": ["DIA", "DIA-Quant", "DIA-Lib", "GPF-DIA", "DDA"], "default": "DIA"},
+    "dia_quant": {"allowed": ["DIA-Quant", "DIA", "DIA-Lib", "DDA"], "default": "DIA-Quant"},
+    "stellar_dda": {"allowed": ["DDA", "GPF-DIA"], "default": "DDA"},
+    "stellar_gpf": {"allowed": ["GPF-DIA", "DDA"], "default": "GPF-DIA"}
+  },
+  "routes": [
+    {"workflow": "Basic-Search", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "none", "ptm": "none"}},
+    {"workflow": "LFQ-MBR", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "LFQ", "ptm": "none"}},
+    {"workflow": "LFQ-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "LFQ", "ptm": "phospho"}},
+    {"workflow": "LFQ-ubiquitin", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "LFQ", "ptm": "ubiquitin"}},
+    {"workflow": "WWA", "data": "wwa", "answers": {"analysis": "standard", "acquisition": "DDA+", "search": "closed", "quant": "LFQ", "ptm": "none"}},
+    {"workflow": "SILAC3", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "SILAC", "ptm": "none"}},
+    {"workflow": "SILAC3-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "SILAC", "ptm": "phospho"}},
+    {"workflow": "iTRAQ4", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "iTRAQ", "ptm": "none"}},
+    {"workflow": "iTRAQ4-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "iTRAQ", "ptm": "phospho"}},
+
+    {"workflow": "TMT10", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
+    {"workflow": "TMT10-bridge", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "bridge", "ptm": "none"}},
+    {"workflow": "TMT10-MS3", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS3", "tmt_reference": "virtual", "ptm": "none"}},
+    {"workflow": "TMT10-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "phospho"}},
+    {"workflow": "TMT10-phospho-bridge", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "bridge", "ptm": "phospho"}},
+    {"workflow": "TMT10-MS3-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS3", "tmt_reference": "virtual", "ptm": "phospho"}},
+    {"workflow": "TMT10-ubiquitin", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "both"}},
+    {"workflow": "TMT10-ubiquitination-K_tmt_or_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_or_ubiq"}},
+    {"workflow": "TMT10-ubiquitination-K_tmt_plus_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_plus_ubiq"}},
+    {"workflow": "TMT10-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet"}},
+    {"workflow": "TMT10-acetyl-noloc", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "msfragger"}},
+
+    {"workflow": "TMT16", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
+    {"workflow": "TMT16-MS3", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS3", "tmt_reference": "virtual", "ptm": "none"}},
+    {"workflow": "TMT16-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "phospho"}},
+    {"workflow": "TMT16-ubiquitination-K_tmt_or_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_or_ubiq"}},
+    {"workflow": "TMT16-ubiquitination-K_tmt_plus_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_plus_ubiq"}},
+    {"workflow": "TMT16-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet"}},
+    {"workflow": "TMT16-acetyl-noloc", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "msfragger"}},
+    {"workflow": "TMT18-Astral", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": "18", "tmt_astral": "yes", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
+    {"workflow": "TMT35", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": "35", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
+
+    {"workflow": "Open", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "open", "quant": "none", "open_variant": "full"}},
+    {"workflow": "Open-quickscan", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "open", "quant": "none", "open_variant": "quick"}},
+    {"workflow": "TMT10-Open", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "open", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual"}},
+    {"workflow": "Mass-Offset-CommonPTMs", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "mass_offset", "quant": "none"}},
+
+    {"workflow": "DIA_SpecLib_Quant", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "closed", "quant": "LFQ", "ptm": "none", "dia_library": "empirical"}},
+    {"workflow": "DIA_SpecLib_Quant_diaPASEF", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "diapasef", "search": "closed", "quant": "LFQ", "ptm": "none", "dia_library": "empirical"}},
+    {"workflow": "DIA_SpecLib_Quant_Phospho", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "closed", "quant": "LFQ", "ptm": "phospho", "dia_library": "empirical"}},
+    {"workflow": "DIA_SpecLib_Quant_Phospho_diaPASEF", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "diapasef", "search": "closed", "quant": "LFQ", "ptm": "phospho", "dia_library": "empirical"}},
+    {"workflow": "DIA_SpecLib_Quant_Ubiq", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "closed", "quant": "LFQ", "ptm": "ubiquitin", "dia_library": "empirical"}},
+    {"workflow": "DIA_SpecLib_Quant_SILAC3", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "closed", "quant": "SILAC", "ptm": "none", "dia_library": "empirical"}},
+    {"workflow": "Nonspecific-HLA", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "nonspecific_hla", "quant": "none", "ptm": "none", "hla_alkylated": "no"}},
+    {"workflow": "Nonspecific-HLA-C57", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "nonspecific_hla", "quant": "none", "ptm": "none", "hla_alkylated": "yes"}},
+    {"workflow": "Nonspecific-HLA-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "nonspecific_hla", "quant": "none", "ptm": "phospho", "hla_alkylated": "no"}},
+    {"workflow": "Nonspecific-HLA-TMT10", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "nonspecific_hla", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none", "hla_alkylated": "no"}},
+    {"workflow": "Nonspecific-HLA-DIA", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "nonspecific_hla", "quant": "LFQ", "ptm": "none", "hla_alkylated": "no", "dia_astral": "no", "dia_library": "empirical"}},
+    {"workflow": "Nonspecific-HLA-DIA-Astral", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "thermo_sciex", "search": "nonspecific_hla", "quant": "LFQ", "ptm": "none", "hla_alkylated": "no", "dia_astral": "yes", "dia_library": "empirical"}},
+    {"workflow": "Nonspecific-HLA-diaPASEF", "data": "dia", "answers": {"analysis": "standard", "acquisition": "DIA", "dia_format": "diapasef", "search": "nonspecific_hla", "quant": "LFQ", "ptm": "none", "hla_alkylated": "no", "dia_library": "empirical"}},
+    {"workflow": "Nonspecific-peptidome", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "peptidome", "quant": "none"}},
+
+
+    {"workflow": "glyco-N-HCD", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "N", "glyco_activation": "hcd", "search": "closed", "quant": "LFQ"}},
+    {"workflow": "glyco-N-Hybrid", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "N", "glyco_activation": "hybrid", "search": "closed", "quant": "LFQ"}},
+    {"workflow": "glyco-N-open-HCD", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "N", "glyco_activation": "hcd", "search": "open", "quant": "LFQ"}},
+    {"workflow": "glyco-N-open-Hybrid", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "N", "glyco_activation": "hybrid", "search": "open", "quant": "LFQ"}},
+    {"workflow": "glyco-N-TMT", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "N", "glyco_activation": "hcd", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "bridge"}},
+    {"workflow": "glyco-N-DIA", "data": "dia", "answers": {"analysis": "glyco", "acquisition": "DIA", "dia_format": "thermo_sciex", "glyco_type": "N", "glyco_activation": "hcd", "search": "closed", "quant": "LFQ", "dia_library": "empirical"}},
+    {"workflow": "glyco-O-HCD", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "O", "glyco_activation": "hcd", "search": "closed", "quant": "LFQ"}},
+    {"workflow": "glyco-O-Hybrid", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "O", "glyco_activation": "hybrid", "search": "closed", "quant": "LFQ"}},
+    {"workflow": "glyco-O-open-HCD", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "O", "glyco_activation": "hcd", "search": "open", "quant": "none"}},
+    {"workflow": "glyco-O-Pair", "data": "dda", "answers": {"analysis": "glyco", "acquisition": "DDA", "glyco_type": "O", "glyco_activation": "paired", "search": "closed", "quant": "LFQ"}},
+    {"workflow": "glyco-O-DIA-HCD", "data": "dia", "answers": {"analysis": "glyco", "acquisition": "DIA", "dia_format": "thermo_sciex", "glyco_type": "O", "glyco_activation": "hcd", "search": "closed", "quant": "LFQ", "dia_library": "empirical"}},
+    {"workflow": "glyco-O-DIA-OPair", "data": "dia_quant", "answers": {"analysis": "glyco", "acquisition": "DIA", "dia_format": "thermo_sciex", "glyco_type": "O", "glyco_activation": "paired", "search": "closed", "quant": "LFQ", "dia_library": "empirical"}},
+
+    {"workflow": "chemprot-ABPP-diaTOP", "data": "dia", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-diaTOP"}},
+    {"workflow": "chemprot-ABPP-IADTB-diaPASEF", "data": "dia", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-IADTB-diaPASEF"}},
+    {"workflow": "chemprot-ABPP-IADTB-TMT16", "data": "dda", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-IADTB-TMT16"}},
+    {"workflow": "chemprot-ABPP-ipIAA", "data": "dda", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-ipIAA"}},
+    {"workflow": "chemprot-ABPP-isoDTB", "data": "dda", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-isoDTB"}},
+    {"workflow": "chemprot-ABPP-isoTOP", "data": "dda", "answers": {"analysis": "specialised", "specialised": "chemprot-ABPP-isoTOP"}},
+    {"workflow": "chemprot-PAL", "data": "dda", "answers": {"analysis": "specialised", "specialised": "chemprot-PAL"}},
+    {"workflow": "citrullination", "data": "dda", "answers": {"analysis": "specialised", "specialised": "citrullination"}},
+    {"workflow": "DIA_DIA-Umpire_SpecLib_Quant", "data": "dia", "answers": {"analysis": "specialised", "specialised": "DIA_DIA-Umpire_SpecLib_Quant"}},
+    {"workflow": "Diagnostic-ion-mining", "data": "dda", "answers": {"analysis": "specialised", "specialised": "Diagnostic-ion-mining"}},
+    {"workflow": "FPOP", "data": "dda", "answers": {"analysis": "specialised", "specialised": "FPOP"}},
+    {"workflow": "Labile_ADP-ribosylation", "data": "dda", "answers": {"analysis": "specialised", "specialised": "Labile_ADP-ribosylation"}},
+    {"workflow": "Labile_phospho", "data": "dda", "answers": {"analysis": "specialised", "specialised": "Labile_phospho"}},
+    {"workflow": "Nonspecific-HLA-customDB-groupFDR", "data": "dda", "answers": {"analysis": "specialised", "specialised": "Nonspecific-HLA-customDB-groupFDR"}},
+    {"workflow": "Nonspecific-HLA-glyco", "data": "dda", "answers": {"analysis": "specialised", "specialised": "Nonspecific-HLA-glyco"}},
+    {"workflow": "Stellar-DDA", "data": "stellar_dda", "answers": {"analysis": "specialised", "specialised": "Stellar-DDA"}},
+    {"workflow": "Stellar-GPFDIA", "data": "stellar_gpf", "answers": {"analysis": "specialised", "specialised": "Stellar-GPFDIA"}},
+    {"workflow": "XRNAX-MassOffset", "data": "dda", "answers": {"analysis": "specialised", "specialised": "XRNAX-MassOffset"}}
+  ]
+}

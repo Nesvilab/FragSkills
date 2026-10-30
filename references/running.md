@@ -153,6 +153,36 @@ Constraints FragPipe enforces:
 - Experiment names: every character outside `A-Za-z0-9_` is replaced with `_`.
 - Spectral **file names** may only contain `A-Za-z0-9_.[]()+-`, and may not contain more than one
   dot (`sample.rep1.mzML` is rejected — `REASON_MULTIPLE_DOTS`).
+- Their **folders** may only contain `A-Za-z0-9_.[]()+-/\:` (no spaces, no non-ASCII letters).
+  Headless 24.1-build8 and later exit 1 on either rule; headless 24.0 and 24.1-build1 to build7
+  do not check them.
+- On Windows, in every build, a path Java cannot open (`<>"|?*`, a control character, a `:` after
+  the drive, a folder or file name ending in a space) drops its row with only a log line.
+- Two inputs with the same file name, even in different folders, are refused.
+- Lines starting with `#` or `//` are comments, and a bioreplicate that is not a plain integer
+  drops its row with only a warning. A line holding only control characters (a trailing Ctrl-Z)
+  is loaded as an empty path, the working folder. `fragpipe_run.py` checks all of this before
+  launching (exit 2).
+- A listed file that is not there stops headless FragPipe; `fragpipe_run.py` names it first.
+- The workflow must be UTF-8: FragPipe only logs a failure to read one saved as UTF-16 and runs
+  with none of its settings, so `fragpipe_run.py` refuses it (exit 2). It also refuses a `\u` not
+  followed by four hex digits, which stops Java reading the file (see the backslash rule below).
+- A folder added as input is walked the way FragPipe does it: a `.d` run is one input, MSFragger's
+  `_calibrated`/`_uncalibrated` copies are skipped, linked folders are followed. `.mzBIN` files
+  (24.1 only) are not collected by `make_manifest.py`; list them in a design sheet.
+- diaTracer writes `<run>_diatracer.mzML` beside each `.d`. List the `.d` (data type `DIA`), not
+  that file: 24.1-build61 and 25.0 refuse it in a manifest and skip it when a folder is added, and
+  24.1 stops on a DIA input that is not a `.d` when diaTracer runs. 24.0 and 24.1 up to build60
+  load it, and their diaPASEF workflow notes reuse it typed DDA beside the `.d` typed DIA-Quant.
+  `make_manifest.py` skips it on a walk.
+- DIA-Umpire writes `<run>_Q1`, `_Q2` and `_Q3` (`.mzML` and `.mgf`) beside its input before
+  moving them into the workdir, and FragPipe loads leftover copies like any run. `make_manifest.py`
+  skips them on a walk when their run is in the same folder; `fragpipe_run.py` refuses one listed
+  with its run or typed DIA.
+- Two inputs in one folder that differ only in extension (`ctrl_1.raw` and `ctrl_1.mzML`, or a
+  `_Q1.mgf` and `_Q1.mzML`) pass FragPipe's name check, but MSFragger writes one `.pepXML` for
+  both, so one search overwrites the other. The builder and `fragpipe_run.py` refuse them; keep
+  one.
 - The group name becomes `experiment`, or `experiment_bioreplicate`, or `exp_<bioreplicate>` when
   the experiment is blank but a replicate is set.
 
@@ -185,12 +215,15 @@ Keys worth knowing:
 | `phi-report.pep-level-summary` / `prot-level-summary` | Produce `combined_peptide.tsv` / `combined_protein.tsv`. |
 | `ionquant.run-ionquant` | LFQ/MBR quantification; also writes the `combined_*` matrices. |
 | `tmtintegrator.run-tmtintegrator` | Produces `tmt-report/`. |
-| `diann.run-dia-nn` | Produces `dia-quant-output/`. |
+| `dia.run-dia-quant` | "Quantify DIA": produces `dia-quant-output/`. The engine is `diann.run-diann` (DIA-NN) or `fragdia.run-fragdia` (FragDIA, the three glyco DIA workflows). `diann.run-diann=true` alone does nothing — `LFQ-MBR` has it too. FragPipe 24.0 and 24.1 builds before 47 use `diann.run-dia-nn` instead. |
 | `speclibgen.run-speclibgen` | Builds `library.tsv`; **collapses all experiments to the workdir root**. |
 
 ## Choosing a built-in workflow
 
-`<FragPipe>/workflows/` ships ~75 of them. Common starting points:
+`<FragPipe>/workflows/` ships 77 of them in 24.1-build61 and 25.0. `scripts/build_workflow.py` picks one
+from a few questions about the data and changes only the run-level settings (FASTA, contaminant
+removal, TMT channel count); SKILL.md "New analysis: build the workflow" walks through it. Pick by
+hand when the user names a workflow or brings their own. Common starting points:
 
 | Goal | Workflow |
 |---|---|

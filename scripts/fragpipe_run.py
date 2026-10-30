@@ -26,9 +26,11 @@ Exit code of THIS script is meaningful, unlike FragPipe's own (always 0):
 
     0  FragPipe succeeded
     1  FragPipe failed
-    2  bad arguments or missing input files
+    2  bad arguments, missing input files, or a manifest FragPipe would misread
     3  the FragPipe folder was guessed -- show it to the user and confirm
     4  no FragPipe installation found -- ask the user for the folder
+    5  a workflow from build_workflow.py whose plan is not confirmed, or has
+       changed since -- show the user the table and confirm it
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -47,7 +50,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fragpipe_progress import (  # noqa: E402
     RunProgress, STATE_FAILED, STATE_SUCCEEDED,
 )
-from check_fragpipe import EXPLICIT_SOURCES, is_explicit, locate, render  # noqa: E402
+from check_fragpipe import (  # noqa: E402
+    EXPLICIT_SOURCES, is_explicit, locate, render,
+)
+from fragskills_plan import LOCK_REFUSED, check_lock, is_builder_made  # noqa: E402
+from make_manifest import check_manifest, has_diatracer_filter, has_name_rules  # noqa: E402
 
 STATUS_NAME = "fragskills_status.json"
 CONSOLE_LOG_NAME = "fragskills_run.log"
@@ -58,6 +65,7 @@ WINDOWS = os.name == "nt"
 EXIT_CONFIG_ERROR = 2       # bad arguments / missing input files
 EXIT_NEEDS_CONFIRMATION = 3  # FragPipe folder was guessed and not confirmed
 EXIT_NO_FRAGPIPE = 4         # no installation found -- ask the user
+EXIT_PLAN_NOT_CONFIRMED = 5  # builder-made workflow, plan not confirmed
 
 
 def _now_iso() -> str:
@@ -89,12 +97,74 @@ def build_command(args, fragpipe_bin: str) -> List[str]:
     return cmd
 
 
-def preflight(args, fragpipe_bin: str) -> List[str]:
+def malformed_unicode_escapes(text: str) -> List[int]:
+    """Lines where ``java.util.Properties.load`` throws "Malformed \\uxxxx encoding": a
+    backslash-u not followed by 4 hex digits.  Read as Java reads a .properties file:
+    comment lines (# or !) skipped, a line ending in an odd number of backslashes
+    continued on the next, ``\\\\`` an escaped backslash."""
+    lines, bad, i = re.split(r"\r\n|\r|\n", text), [], 0
+    while i < len(lines):
+        start, logical = i, lines[i].lstrip(" \t\f")
+        if logical and logical[0] not in "#!":
+            while (len(logical) - len(logical.rstrip("\\"))) % 2 and i + 1 < len(lines):
+                i += 1
+                logical = logical[:-1] + lines[i].lstrip(" \t\f")
+            j = 0
+            while j < len(logical):
+                if logical[j] != "\\":
+                    j += 1
+                elif logical[j + 1:j + 2] == "u" and not _HEX4.match(logical, j + 2):
+                    bad.append(start + 1)
+                    break
+                else:
+                    j += 2
+        i += 1
+    return bad
+
+
+_HEX4 = re.compile(r"[0-9A-Fa-f]{4}")
+
+
+def preflight(args, fragpipe_bin: str, version: Optional[str] = None) -> List[str]:
     """Return a list of fatal problems (empty means good to go)."""
     problems = []
     for label, path in (("--workflow", args.workflow), ("--manifest", args.manifest)):
         if not os.path.isfile(path):
             problems.append("%s file not found: %s" % (label, path))
+    if os.path.isfile(args.workflow):
+        # PropsFile.load reads strict UTF-8 and only logs a failure, so FragPipe would
+        # run without the settings after the first bad byte; UTF-16 with no byte-order
+        # mark decodes as UTF-8 but spells every key with NULs between its letters
+        text = ""
+        try:
+            with open(args.workflow, "rb") as fh:
+                text = fh.read().decode("utf-8")
+            bad = "\x00" in text
+        except UnicodeDecodeError:
+            bad = True
+        except OSError as exc:
+            problems.append("cannot read %s (%s)" % (args.workflow, exc.strerror or exc))
+            bad = False
+        if bad:
+            problems.append(
+                "%s is not UTF-8 text (UTF-16 or another encoding). FragPipe reads a workflow "
+                "as UTF-8 and silently drops the settings it cannot read. %s" % (
+                    args.workflow,
+                    "It is the workflow builder's: re-run build_workflow.py, show the table "
+                    "and confirm, instead of saving it again." if is_builder_made(args.workflow)
+                    else "Save it as UTF-8."))
+        else:
+            for n in malformed_unicode_escapes(text):
+                problems.append(
+                    "%s line %d: a \\u not followed by 4 hex digits (such as an unescaped "
+                    "D:\\db\\uniprot.fasta) makes Java stop reading the workflow, so FragPipe "
+                    "cannot load it. Write each backslash in a value as \\\\ (see "
+                    "references/running.md)." % (args.workflow, n))
+    if os.path.isfile(args.manifest):
+        # FragPipe runs in the workdir, so relative rows resolve there
+        problems.extend(check_manifest(args.manifest, os.path.abspath(args.workdir),
+                                       name_rules=has_name_rules(version),
+                                       diatracer_filter=has_diatracer_filter(version)))
     if " " in fragpipe_bin or "\t" in fragpipe_bin:
         problems.append(
             "FragPipe refuses to run from a path containing spaces or tabs: %s"
@@ -180,6 +250,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--print-command", action="store_true",
                     help="print the resolved command line and exit")
     args = ap.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):     # FragPipe's output (an en dash in a
+        try:                                    # citation) must not end the watch on a
+            stream.reconfigure(errors="backslashreplace")   # console that cannot show it
+        except (AttributeError, ValueError):
+            pass
 
     # --- locate FragPipe, and never run against an unconfirmed guess ---------
     try:
@@ -212,11 +287,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(subprocess.list2cmdline(cmd))
         return 0
 
-    problems = preflight(args, fragpipe_bin)
+    problems = preflight(args, fragpipe_bin, install.get("version"))
     if problems:
         for p in problems:
             print("[fragskills] ERROR: %s" % p, file=sys.stderr)
         return EXIT_CONFIG_ERROR
+
+    lock, why = check_lock(args.workflow, args.manifest, install.get("version"))
+    if lock == LOCK_REFUSED:
+        print("[fragskills] STOP: %s" % why, file=sys.stderr)
+        return EXIT_PLAN_NOT_CONFIRMED
 
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)

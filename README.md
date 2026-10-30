@@ -1,227 +1,111 @@
 # FragSkills
 
-A Claude Code skill for running [FragPipe](https://fragpipe.nesvilab.org/) headless and
-interpreting its output.
-
-`SKILL.md` is the instruction file Claude reads. This README is for humans.
+A Claude Code skill that runs [FragPipe](https://fragpipe.nesvilab.org/) headless, from raw files
+to results, and reads the output. `SKILL.md` is what Claude reads; this README is for people.
 
 ## What it does
 
-- Finds your FragPipe installation, and **always confirms which one** before running. Several
-  versions side by side is normal; picking the wrong one silently changes the results, so a
-  detected-but-unconfirmed folder is refused rather than used.
-- Launches `fragpipe --headless` with a workflow + manifest + workdir.
-- Tracks progress **exactly** (not estimated) by parsing FragPipe's own task plan and
-  `Process '<name>' finished` lines, and publishes it to a JSON status file for polling.
-- Decides success correctly. Headless FragPipe calls `System.exit(0)` on both the success and the
-  failure path, so the exit code is meaningless; the tools key off the stdout markers instead.
-- Discovers and summarizes every report — the per-experiment TSVs, the `combined_*` matrices, and
-  the TMT / DIA / DIA-NN quantification tables — accounting for FragPipe's output layout rules.
-- **Identifies which files are the actual result.** TMT, TMT+PTM, DIA, grouped DDA and single-run
-  DDA each leave a different main table, next to several plausible-looking wrong ones. Discovery
-  names the run type, ranks the files that answer it, and says explicitly what not to quantify from.
-- **Builds the QC summary report that headless runs never produce** — `fragskills-qc-report.html`, with
-  no FragPipe installation, no Java and no third-party packages, from a results folder alone. It is
-  a port of FragPipe's own generators (`generate_reports_pdf.py`, then the FragSummarizer jar),
-  checked panel by panel against the jar's output. The underlying series are also available as
-  JSON/TSV for custom figures.
-
-## Commands
-
-Three slash commands, for the steps worth a typed shortcut:
-
-| Command | Does |
-|---|---|
-| `/fragskills-run <workdir>` | Launch a headless search in the background |
-| `/fragskills-status <workdir>` | Report progress, or why a run stopped |
-| `/fragskills-report <workdir>` | Build `fragskills-qc-report.html` and read the QC out loud |
-
-They are **dispatchers, not documentation** — four lines each, pointing at the matching section of
-`SKILL.md`. That keeps one source of truth: edit the skill, and the commands follow. Anything else
-is better asked in plain language ("why did the run in D:/run/out fail?", "build me a manifest from
-D:/data"); the skill triggers on that and covers the whole workflow.
-
-They live in `commands/` and are **copied** into `~/.claude/commands/` at install time, so re-run
-the installer after editing one — unlike the skill itself, which is linked and updates live. Each
-install prunes the previous copies first, so a deleted command does not linger. Installing under
-`--name` skips them, since they address the skill by its default name.
+- **Builds the workflow from a few questions** (DDA or DIA? How quantified? Any PTM?). It picks one
+  of FragPipe's 77 shipped workflows and sets only the FASTA, contaminant removal and TMT channel
+  count. The builder needs FragPipe 24.1 or 25.0; with other versions, bring your own workflow.
+- **Confirms which FragPipe** to use, since many users have several versions installed.
+- **Checks the inputs.** A file name or manifest row that FragPipe would refuse, or silently drop,
+  is caught before launch.
+- **Tracks progress exactly** from FragPipe's own task plan, and tells success from failure by its
+  output (headless FragPipe exits 0 either way).
+- **Points at the real result.** Each run type writes files that look like the result but are
+  not; the skill names the run type and the files to use.
+- **Builds the QC report headless runs never produce** (`fragskills-qc-report.html`), in pure
+  Python from a results folder, checked against FragPipe's own report.
 
 ## Install
 
-Claude Code loads skills from `~/.claude/skills/<name>/`. Run the installer for your platform
-from this directory — no administrator rights needed:
+From this folder, with no administrator rights. Windows: `install.bat` (or double-click it).
+Linux / macOS: `./install.sh`.
 
-```bat
-install.bat                     :: Windows  (or just double-click it)
-```
+This links the skill into `~/.claude/skills/fragskills`, so edits here take effect at once, and
+checks for Python 3.8+. Start a new Claude Code session to use it. The slash commands are copied,
+not linked, and are skipped under `--name`: re-run the installer after updating this folder (it
+is safe to repeat). Options: `--project [DIR]`, `--copy` (for a removable or network drive),
+`--name NAME`, `--force`, `--uninstall` (removes the link and commands, never this folder),
+`--help`.
 
-```bash
-./install.sh                    # Linux / macOS
-```
+To stop the skill asking which FragPipe to use, set `FRAGPIPE_DIR`. Windows:
+`setx FRAGPIPE_DIR "C:\FragPipe\FragPipe-24.1-build36"`. Linux / macOS:
+`export FRAGPIPE_DIR=/opt/fragpipe`. `python scripts/check_fragpipe.py --list` shows the installs
+it finds.
 
-That links the skill into `~/.claude/skills/fragskills`, verifies it, and checks that you have
-Python 3.8+. Then start a new Claude Code session — it picks the skill up automatically.
+## Use
 
-By default the installer creates a **link** (a directory junction on Windows, a symlink on
-Unix), so edits in this folder take effect immediately with no reinstall. Junctions and symlinks
-both work as a normal user; administrator rights and Developer Mode are not required.
+Ask in plain language ("analyse the TMT data in D:/data", "why did the run in D:/run/out fail?"),
+or type a command:
 
-| Option | Effect |
+| Command | Does |
 |---|---|
-| *(none)* | Install for the current user — `~/.claude/skills/` |
-| `--project [DIR]` | Install into `DIR/.claude/skills/` instead (default: current directory) |
-| `--copy` | Copy the files rather than linking. Use when this folder lives on a removable drive, a network share, or another machine |
-| `--link` | Fail instead of silently falling back to copying |
-| `--name NAME` | Install under a different folder name |
-| `--force` | Replace an existing installation |
-| `--uninstall` | Remove it again |
-| `--help` | Full usage |
+| `/fragskills-new <data folder> [workdir]` | Ask the questions, build and confirm the workflow, launch |
+| `/fragskills-run <workdir> [workflow] [manifest]` | Launch a headless run in the background |
+| `/fragskills-status <workdir>` | Report progress, or why a run stopped |
+| `/fragskills-report <workdir>` | Build the QC report and explain it |
 
-Re-running the installer is safe: if it is already linked here it says so and does nothing.
+**A new analysis** (`/fragskills-new`) asks you to confirm the FragPipe install, answer the
+questions and check the proposed design (the channel sheet for TMT). It launches only after you
+confirm the table of every answer and changed parameter. In `<workdir>/fragskills-repro/`, edit
+only the design and channel sheets: `fragpipe_run.py` refuses a built workflow or manifest that
+changed after you confirmed it. To change other parameters, start from your own workflow with
+`/fragskills-run`.
 
-If you always use the same FragPipe, name it once and the skill will stop asking which one:
-
-```bat
-setx FRAGPIPE_DIR "C:\FragPipe\FragPipe-24.1-build36"
-```
+**Any finished FragPipe results folder** can be read, with no FragPipe or Java:
 
 ```bash
-export FRAGPIPE_DIR=/opt/fragpipe
+python scripts/parse_reports.py --workdir D:/run/out              # run type and main result
+python scripts/parse_reports.py --workdir D:/run/out --summary    # + counts, completeness
+python scripts/make_report.py   --workdir D:/run/out              # fragskills-qc-report.html
+python scripts/qc_data.py       --workdir D:/run/out --tsv D:/qc  # the data behind the plots
 ```
 
-Check what it resolves to at any time with:
-
-```bash
-python scripts/check_fragpipe.py          # or --list to see every version installed
-```
-
-### Uninstall
-
-```bat
-install.bat --uninstall
-```
-
-```bash
-./install.sh --uninstall
-```
-
-Removing a link never touches the files it points at, and the installer refuses to delete a
-directory that is not a FragSkills install.
-
-## Reading a finished run
-
-The scripts also work on their own — no FragPipe, no Java, no installation, and they do not care
-whether the run was launched by this skill. Start here, on any results folder:
-
-```bash
-python scripts/parse_reports.py --workdir D:/run/out
-```
-
-```
-Run type    : TMT / isobaric labelling, site-level (PTM enrichment)
-Detected by : tmt-report/ is present with 10 files including site-level tables
-
-MAIN RESULT -> D:/run/out/tmt-report
-  * ratio_single-site_MD.tsv      log2 ratio vs the reference channel, single-site level - use this to compare across plexes
-    abundance_single-site_MD.tsv  log2 abundance, single-site level
-    ratio_multi-site_MD.tsv       log2 ratio vs the reference channel, multi-site level - use this to compare across plexes
-    abundance_multi-site_MD.tsv   log2 abundance, multi-site level
-    ratio_protein_MD.tsv          log2 ratio vs the reference channel, protein level - use this to compare across plexes
-    ...
-  (* start here)
-
-NOT the main result: combined_*.tsv
-    MS1 and spectral-count quant, not reporter ions. Useful for identification counts; not the TMT quantities.
-
-NOT the main result: psm.tsv channel columns
-    raw, unnormalised reporter intensities. TMT-Integrator normalises and rolls these up; use its output instead.
-```
-
-That last block is the point. A TMT run also writes `combined_protein.tsv`; a DIA run also writes
-`psm.tsv` and `protein.tsv` at the workdir root. Those files open fine and answer a *different*
-question, so the failure is silent. Precedence is `tmt-report/` → `dia-quant-output/` →
-`combined_*.tsv` → root reports.
-
-| Invocation | Gives |
-|---|---|
-| `--workdir DIR` | run type, ranked main results, full inventory |
-| `--workdir DIR --summary` | + rows, samples, completeness, ID counts, charge distributions |
-| `--file X.tsv --columns` | the schema |
-| `--file X.tsv --head 3` | the first rows as `key: value` blocks |
-| `--json` | any of the above as JSON; for `--workdir`, the verdict is under `classification` |
-
-Two conventions decide whether the numbers come out right, and `--summary` reports which one each
-file follows: **TMT-Integrator writes log2 values with `NA` for missing**, while **DIA writes linear
-intensities and leaves missing cells empty**. DIA sample columns are full paths to the spectral
-files, not sample names. `references/outputs.md` has the column reference for every level.
-
-Then the QC report and its underlying series:
-
-```bash
-python scripts/make_report.py --workdir D:/run/out            # -> fragskills-qc-report.html
-python scripts/qc_data.py     --workdir D:/run/out --tsv D:/qc   # or --json, --list
-```
+Quantify TMT from `tmt-report/` and DIA from `dia-quant-output/`, not from `combined_*.tsv` or
+the root `psm.tsv`/`protein.tsv`. TMT values are log2 with `NA` for missing; DIA values are linear
+with empty cells. `references/outputs.md` has every column.
 
 ## Layout
 
 ```
-SKILL.md                      entry point Claude reads
-install.sh                    installer for Linux / macOS
-install.bat                   installer for Windows
-commands/                     four-line dispatchers into SKILL.md, not a second copy of it
-  fragskills-run.md           launch a headless run
-  fragskills-status.md        report progress
-  fragskills-report.md        build the QC report and interpret it
-references/
-  running.md                  CLI flags, manifest/workflow formats, workflow selection
-  outputs.md                  output layout rules + column reference for every report
-  plots.md                    the summary report: every panel, its source, how to read it
-  troubleshooting.md          failure modes and how to diagnose them
-scripts/
-  check_fragpipe.py           locate the FragPipe install and report it for confirmation
-  fragpipe_run.py             launch headless, stream progress, maintain status JSON
-  fragpipe_status.py          poll a run (exit 0/1/2/3 = ok/failed/running/not found)
-  fragpipe_progress.py        stdout -> structured progress (importable + CLI)
-  make_report.py              build fragskills-qc-report.html from a results folder, in pure Python
-  qc_data.py                  the data behind those plots as JSON/TSV, for custom figures
-  svg_charts.py               dependency-free SVG chart primitives used by the report
-  make_manifest.py            build .fp-manifest files, with FragPipe's naming rules enforced
-  parse_reports.py            classify the run, then discover and summarize every report it wrote
-  run_type.py                 which analysis this was, and which files hold its result
-  quant_matrix.py             read TMT / DIA / DIA-NN quant matrices (log2 vs linear, NA vs empty)
-  selftest.py                 regression suite; takes one output directory per analysis type
+SKILL.md        the instructions Claude reads
+commands/       the four slash commands, each pointing at a section of SKILL.md
+references/     running FragPipe, output formats, QC plots, troubleshooting
+docs/           workflow-builder-plan.md: how the builder's questions and routes were derived
+scripts/        standard-library Python 3.8+, no pandas or numpy
+  check_fragpipe.py     find the FragPipe install
+  build_workflow.py     questions -> workflow, manifest and confirmation table
+  workflow_tree.json    the questions, one route per shipped workflow
+  make_manifest.py      manifests and design sheets, with FragPipe's rules checked
+  fragpipe_run.py       launch headless and track progress
+  fragpipe_status.py    poll a run
+  parse_reports.py      classify a run and summarize its reports
+  make_report.py        the QC report
+  qc_data.py            the data behind the QC plots
+  selftest.py           the test suite
+  ...                   shared modules
 ```
 
-Scripts are pure standard-library Python 3.8+ — no pandas or numpy needed. Use pandas for actual
-downstream analysis; these tools are for orchestration and orientation.
-
-## Verify
+## Test
 
 ```bash
-python scripts/selftest.py --example /path/to/a/finished/fragpipe/output
-
-# one directory per analysis type covers every output layout
-python scripts/selftest.py --example ~/runs/dda ~/runs/dda_no_group ~/runs/dia \
-                                     ~/runs/tmt ~/runs/tmt_phospho
+python scripts/selftest.py                                     # synthetic checks and the builder
+python scripts/selftest.py --example D:/runs/dda D:/runs/tmt   # + finished runs
 ```
 
-Checks the log parser (full and mid-run), success/failure detection, output discovery, run-type
-classification, report summaries, the QC series and the summary report against real completed runs
-— each directory needs a `log_*.txt` plus the report TSVs. The classification precedence and the
-quant-matrix conventions are also tested against synthetic trees, so those run anywhere. Run it
-after any change.
+`--example` takes finished output folders (each with its `log_*.txt`), one per analysis type. The
+builder test also rebuilds every shipped workflow from the FragPipe installs it finds
+(`--fragpipe-dir` to choose). Run it after any change.
 
 ## Status
 
-Validated end to end against five real run layouts: DDA with named experiments, DDA with none, DIA,
-TMT, and TMT with phospho enrichment. For each one the skill identifies the run type, points at the
-right result files, and reads them — including the column names, `log2`-vs-linear values and
-`NA`-vs-empty missing markers, all taken from the output itself rather than from documentation.
-
-The report generator is validated against four layouts — single- and multi-experiment DDA, TMT, and
-DIA. Counts (charge, missed cleavages, ID bars, per-run histograms, feature weights) match
-FragSummarizer 1.0.2 exactly, and the drawn geometry agrees to within 0.1 px per panel; the
-deliberate departures are listed in `references/plots.md`.
-
-Not yet covered: glyco and open/offset searches (`Observed Modifications` is parsed but has no
-dedicated summarizer), and DIA-NN's `.speclib`/`.parquet` outputs, which are listed but not read.
+- Run reading is validated on five real layouts: DDA with and without experiments, DIA, TMT, and
+  TMT with phospho enrichment.
+- QC report counts match FragSummarizer 1.0.2; `references/plots.md` lists the deliberate
+  differences.
+- The builder rebuilds all 77 shipped workflows key for key on 24.1-build61 and on FragPipe
+  develop (25.0-build3).
+- Not yet covered: workflows beyond the shipped ones, glyco and open-search summaries, and DIA-NN
+  `.speclib`/`.parquet` outputs (listed, not read).

@@ -62,6 +62,95 @@ without further confirmation — but still show them which folder it resolved to
 and the DIA-NN binary — use it to find built-in workflows and to fill `--tools-folder`, `--diann`,
 or `--python-dir` when a workflow needs them.
 
+## New analysis: build the workflow
+
+When the user has raw files and wants an analysis rather than a named workflow, let
+`build_workflow.py` pick the shipped workflow from a few questions. It starts from that workflow
+unchanged and sets only the run-level settings: FASTA, contaminant removal, TMT channel count. It
+supports FragPipe 24.1 and 25.0; with any other version it refuses (exit 6), and the workflow is
+picked by hand as in Step 2.
+
+1. **Step 1 first**, then ask for a workdir (the run's output folder) if the user gave none.
+2. **Ask the open questions.**
+
+   ```bash
+   python scripts/build_workflow.py --workdir D:/run/out \
+       --fragpipe-dir "<confirmed folder>" --data D:/data --json
+   ```
+
+   Exit 5 means questions are open. Each item of `open` has an `id`, a `text` and a `kind`:
+   - `choice`: offer its `answers` (show `label`, send back `value`) with AskUserQuestion, up to 4
+     questions per dialog. A question with more than 4 answers goes in a numbered list in your
+     message instead. Name the `unavailable` answers in the question text with their nearest
+     shipped workflow and how it differs (`nearest.differs`); never offer them. Mark the
+     `default`. The PTM enrichment, the TMT reference and the DIA instrument are asked even when
+     only one answer is shipped with the others: ask the user in your message to confirm that
+     answer, naming the unavailable ones, and send back what they say.
+   - `path`: free text. The FASTA goes back as `--answer fasta=<path>` and must already contain
+     decoys; the data folder goes back as `--data <folder>` (it replaces the folders given before).
+   - `table`: the design or channel sheet, step 3.
+
+   Never answer for the user, even when the file names make the answer look obvious; say what they
+   suggest and let the user choose. Re-run with `--answer id=value` per answer (repeatable). The
+   plan in the workdir remembers answers and `--fragpipe-dir`, so pass only the new ones, and
+   repeat until nothing is open. An answer no shipped workflow combines with the earlier ones exits
+   6 and comes back under `rejected`, with the nearest shipped workflow and how it differs; the
+   question stays in `open`. Tell the user and ask it again. An answer listed under `dropped` was
+   made irrelevant by the others (say so); one given early is kept until its question comes up.
+3. **The design.** `design` is `fragskills_design.tsv` (file, condition, replicate, data_type),
+   proposed from the file names. Show it as a table, apply the user's edits to the file, and re-run
+   with `--design <path>`. Rows with the same condition and replicate are fractions of one sample.
+   A sample sheet the user already has, in the same columns, is passed the same way, with or
+   without `--data` (without it, the sheet's rows are the files; files it does not list stay out
+   when `--data` is given later). TMT and iTRAQ
+   get `channels` instead: `fragskills_channels.tsv` (plex, channel, sample, condition,
+   replicate), one plex per data folder, accepted with `--channels <path>`. Sample names take no
+   spaces (a non-breaking space included) and must be unique across all plexes; `NA` (exactly that, any case) marks an unused
+   channel, and `N/A` or `n.a.` is refused. FragPipe compares names with only A-Z a-z 0-9 `_` `-`
+   kept, so `WT.1` and `WT1` clash; the reports use the names as written, so names made only of
+   those characters are safest. A bridge workflow needs exactly one sample per plex whose name, as
+   written, contains its reference tag (`pool_1`, `pool_2`). A plex folder that already holds
+   the user's own `*annotation.txt` is used as is: its rows in the sheet come from that file,
+   read again on every build, and a problem in them is fixed in that file (the message names
+   it). An accepted sheet is proposed again when it stops fitting: a workflow with other data
+   types, other `--data` folders or files in them, another channel count or other plexes. A call
+   that stops before the new proposal is written (any data folder that is away, or a sheet saved
+   in another encoding than UTF-8, which is never merged) keeps the accepted sheet. Relay every
+   `PROBLEM` and `NOTE` the builder prints with a sheet: a note says when it merged rows into a
+   new proposal or reset their data types, which rows the user took out stay out, which rows were
+   left out because their files are not under `--data`, and where it kept the previous version
+   (`.bak`, `.bak2`, ...).
+4. **Confirm.** Exit 0 prints the confirmation table: FragPipe folder, base workflow, every answer
+   and every changed parameter with its source, the input files and the files written. Show it to
+   the user as printed and ask them to confirm. Only after they say yes:
+
+   ```bash
+   python scripts/build_workflow.py --workdir D:/run/out --confirm
+   ```
+
+   This records checksums and, for TMT, writes `<plex>_annotation.txt` into each plex's raw-file
+   folder, the only place headless FragPipe looks. Nothing goes into the data folders before this.
+5. **Launch** as in Step 2c, with
+   `--workflow D:/run/out/fragskills-repro/fragskills.workflow` and
+   `--manifest D:/run/out/fragskills-repro/fragskills.fp-manifest`. `fragpipe_run.py` refuses a
+   builder-made workflow (exit 5) until its plan is confirmed, and again when the workflow, the
+   manifest or a TMT annotation changes afterwards, or when another FragPipe version (or one whose
+   version it cannot tell) launches it. Any workflow file beside the plan counts as builder-made,
+   copies included. Do not edit those files: re-run the builder, show the table and confirm
+   again. A builder call that changes the plan clears the confirmation; `--confirm` takes no other
+   inputs and uses the FragPipe the plan was built from. A workdir copied or moved elsewhere is
+   rebuilt there (run the builder with the new `--workdir`, show the table, confirm) before
+   `--confirm` or `--show` accept it. If the table starts with a `NOTE` that
+   the console cannot show some characters, re-run with `--json` for the exact paths.
+
+`build_workflow.py` exit codes: **0** built or confirmed, **2** bad arguments or inputs (the message
+says which), **5** questions open, **6** refused: an answer no shipped workflow combines with the
+others, an unsupported FragPipe version, or a shipped workflow that this FragPipe build ships
+otherwise than the builder expects (pick the workflow by hand then). `--show` reprints the
+table. Everything it writes is in
+`<workdir>/fragskills-repro/`, and `fragskills_plan.json` there records each answer and change with
+its reason.
+
 ## Step 2: run the job
 
 FragPipe headless needs a **workflow** (parameters), a **manifest** (input files), and a **workdir**
@@ -72,7 +161,8 @@ FragPipe headless needs a **workflow** (parameters), a **manifest** (input files
 python scripts/make_manifest.py --input D:/data --recursive \
     --experiment-from parent --data-type DDA --out D:/run/files.fp-manifest
 
-# b. Workflow: copy a built-in from <FragPipe>/workflows/ and set the FASTA in it.
+# b. Workflow: build it from questions ("New analysis: build the workflow"), or copy a
+#    built-in from <FragPipe>/workflows/ and set the FASTA in it.
 #    database.db-path must point at a FASTA that ALREADY CONTAINS DECOYS, and the
 #    file is Java .properties — read references/running.md before editing one.
 
@@ -85,13 +175,21 @@ python scripts/fragpipe_run.py \
     --ram 64 --threads 16
 ```
 
-Pick a workflow by matching the user's experiment: `LFQ-MBR` for label-free DDA, `TMT10`/`TMT16`
+By hand, pick a workflow by matching the user's experiment: `LFQ-MBR` for label-free DDA, `TMT10`/`TMT16`
 for isobaric, `DIA_SpecLib_Quant` for DIA, `Open` for open/PTM discovery, `Basic-Search` for plain
 identification. Confirm the choice with the user when it is not obvious — a wrong workflow wastes
 hours. `--dry-run` makes FragPipe print its plan and stop; use it to validate configuration cheaply.
 
-`fragpipe_run.py` exit codes: **0** succeeded, **1** failed, **2** bad arguments or missing inputs,
-**3** FragPipe folder not confirmed, **4** no FragPipe installation found.
+`fragpipe_run.py` exit codes: **0** succeeded, **1** failed, **2** bad arguments, missing inputs, a
+workflow that is not UTF-8 or holds a `\u` Java cannot read (an unescaped `D:\db\uniprot.fasta`),
+or a manifest row FragPipe would misread or refuse (a file that is not there, unknown or empty
+data type, non-integer bioreplicate, a file or folder name that 24.1-build8 and later refuse, a
+path Windows cannot open, diaTracer's `_diatracer.mzML` output listed as an input on
+24.1-build61 or later, DIA-Umpire's `_Q1`/`_Q2`/`_Q3` output listed with its run or typed DIA,
+two inputs with the same file name, or two in one folder that differ only in extension, such as
+`ctrl_1.raw` and `ctrl_1.mzML`, whose searches would overwrite each other),
+**3** FragPipe folder not confirmed, **4** no FragPipe installation found, **5** a builder-made
+workflow whose plan is not confirmed or has changed since.
 
 ## Reporting progress while it runs
 
