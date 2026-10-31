@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Questions and routes for build_workflow.py. Every shipped FragPipe workflow is one route: the answers that select it. Questions are asked in this order, each only when its 'when' holds, offering only the answers that still lead to a route. Keys are FragPipe 24.1 names; 'versions' maps them for other versions. See docs/workflow-builder-plan.md.",
+  "about": "Questions and routes for build_workflow.py. Every shipped FragPipe workflow is one route: the answers that select it. Questions are asked in this order, each only when its 'when' holds, offering only the answers that still lead to a route. Keys are FragPipe 24.1 names; 'versions' maps them for other versions.",
   "reference_version": "24.1",
   "versions": {
     "24.1": {

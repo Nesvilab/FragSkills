@@ -1,22 +1,53 @@
 # FragSkills
 
-A Claude Code skill that runs [FragPipe](https://fragpipe.nesvilab.org/) headless, from raw files
-to results, and reads the output. `SKILL.md` is what Claude reads; this README is for people.
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#install)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-3776AB)](#install)
+
+FragSkills is a Claude Code plugin that runs [FragPipe](https://fragpipe.nesvilab.org/) headless,
+from raw files to results, and reads the output. From a few questions about the experiment, it
+picks the workflow, launches FragPipe, tracks the run, and points at the files to use.
+
+Three things make headless FragPipe easy to get wrong: there are 77 shipped workflows to choose
+from, FragPipe exits 0 whether the run succeeded or failed, and each run type writes files that
+look like the result but are not (in a DIA run, the root `protein.tsv` describes the spectral
+library, not the quantification). FragSkills handles each of them before, during, and after the
+run.
 
 ## What it does
 
-- **Builds the workflow from a few questions** (DDA or DIA? How quantified? Any PTM?). It picks one
-  of FragPipe's 77 shipped workflows and sets only the FASTA, contaminant removal and TMT channel
-  count. The builder needs FragPipe 24.1 or 25.0; with other versions, bring your own workflow.
-- **Confirms which FragPipe** to use, since many users have several versions installed.
-- **Checks the inputs.** A file name or manifest row that FragPipe would refuse, or silently drop,
-  is caught before launch.
-- **Tracks progress exactly** from FragPipe's own task plan, and tells success from failure by its
-  output (headless FragPipe exits 0 either way).
-- **Points at the real result.** Each run type writes files that look like the result but are
-  not; the skill names the run type and the files to use.
-- **Builds the QC report headless runs never produce** (`fragskills-qc-report.html`), in pure
-  Python from a results folder, checked against FragPipe's own report.
+- **Picks the workflow from a few questions**, such as how the spectra were acquired, how the
+  samples are quantified, and whether they were enriched for a PTM. The answers select one of the
+  shipped workflows, used unchanged apart from the FASTA, contaminant removal, and TMT channel
+  count. The builder needs FragPipe 24.1 or 25.0; with other versions, pick the workflow by hand
+  and launch it with `/fragskills:run`.
+- **Confirms which FragPipe to use**, since several versions are often installed side by side.
+- **Checks the inputs before launch**: a misspelled data type that FragPipe would read as DDA, a
+  manifest row it would drop, a file name it would refuse.
+- **Tracks progress exactly**, as finished tasks out of FragPipe's own task plan, and tells success
+  from failure by FragPipe's output rather than its exit code.
+- **Stops a run cleanly.** `/fragskills:stop` ends FragPipe and every tool it started, after you
+  confirm, so no MSFragger or DIA-NN process is left running.
+- **Names the real result.** It identifies the run type and says which files to quantify from and
+  which to leave alone (validated on five real layouts; see [Status](#status)).
+- **Builds the QC report headless runs never produce** (`fragskills-qc-report.html`), with counts
+  that match FragSummarizer 1.0.2. It reads any finished results folder and needs no FragPipe or
+  Java.
+
+Nothing is launched before you confirm a table of every answer and every changed parameter. For a
+TMTpro 18-plex phospho experiment, the builder picks the shipped TMT16-phospho workflow, and the
+table lists the three changes:
+
+```text
+Parameters changed from TMT16-phospho.workflow (every other parameter is FragPipe's)
+  parameter                         source                          value
+  database.db-path                  answer: fasta                   D:\db\human_decoys.fasta
+  phi-report.remove-contaminants    answer: remove_contaminants     true  (was false)
+  tmtintegrator.channel_num         answer: tmt_plex                TMT-18  (was TMT-16)
+```
+
+[Install](#install) it, then type `/fragskills:new <data folder>` or ask in plain language;
+[Use](#use) lists the commands.
 
 ## Install
 
@@ -62,6 +93,7 @@ or type a command:
 | `/fragskills:run <workdir> [workflow] [manifest]` | Launch a headless run in the background |
 | `/fragskills:status <workdir>` | Report progress, or why a run stopped |
 | `/fragskills:report <workdir>` | Build the QC report and explain it |
+| `/fragskills:stop [workdir]` | Stop a run and every tool it started, after you confirm |
 
 **A new analysis** (`/fragskills:new`) asks you to confirm the FragPipe install, answer the
 questions and check the proposed design (the channel sheet for TMT). It launches only after you
@@ -90,9 +122,8 @@ with empty cells. `references/outputs.md` has every column.
 ```
 SKILL.md        the instructions Claude reads
 .claude-plugin/ the plugin manifest and the nesvilab marketplace that lists it
-commands/       the four slash commands, each pointing at a section of SKILL.md
+commands/       the five slash commands, each pointing at a section of SKILL.md
 references/     running FragPipe, output formats, QC plots, troubleshooting
-docs/           workflow-builder-plan.md: how the builder's questions and routes were derived
 scripts/        standard-library Python 3.8+, no pandas or numpy
   check_fragpipe.py     find the FragPipe install
   build_workflow.py     questions -> workflow, manifest and confirmation table
@@ -100,6 +131,7 @@ scripts/        standard-library Python 3.8+, no pandas or numpy
   make_manifest.py      manifests and design sheets, with FragPipe's rules checked
   fragpipe_run.py       launch headless and track progress
   fragpipe_status.py    poll a run
+  fragpipe_stop.py      stop a run and the tools it started
   parse_reports.py      classify a run and summarize its reports
   make_report.py        the QC report
   qc_data.py            the data behind the QC plots

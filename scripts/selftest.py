@@ -2555,6 +2555,598 @@ def test_tmt_annotations() -> None:
         os.rmdir(odd)
 
 
+_FAKE_FRAGPIPE = """import os, subprocess, sys, time
+workdir = sys.argv[sys.argv.index("--workdir") + 1]
+child = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(600)",
+                          os.path.join(workdir, "fragger.params")],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+with open(os.path.join(workdir, "fake_child.pid"), "w") as fh:
+    fh.write(str(child.pid))
+print("2 commands to execute:", flush=True)
+time.sleep(600)
+"""
+
+
+_STANDIN_WATCHER = """import sys, time
+sys.path.insert(0, sys.argv[1])
+import fragpipe_stop
+held = fragpipe_stop.lock_workdir(sys.argv[sys.argv.index("--workdir") + 1])
+time.sleep(120)
+"""
+
+
+def test_stop() -> None:
+    """fragpipe_stop.py must end the whole run, and nothing else.
+
+    A fake FragPipe launcher, a .bat or a shell script like the real one, starts a
+    child that sleeps, as FragPipe starts MSFragger; fragpipe_run.py watches it.
+    fragpipe_stop.py must refuse without --yes, then end both processes and leave the
+    run recorded as stopped. A status file whose PID now belongs to another program
+    must not get that program killed.
+    """
+    print("\n[20] stopping a run")
+    import shutil
+    import socket
+    import subprocess
+    import time
+    import fragpipe_stop as fs
+
+    win = 'C:\\WINDOWS\\system32\\cmd.exe /c ""C:\\FP\\bin\\fragpipe.bat" --headless ' \
+          '--workflow C:\\w.workflow --workdir "C:\\my run\\out" --ram 8"'
+    check("the workdir is read from a quoted Windows command line",
+          fs.workdir_of(win) == "C:\\my run\\out", str(fs.workdir_of(win)))
+    check("and from an unquoted one, as the last option",
+          fs.workdir_of('java -cp x org.nesvilab.fragpipe.FragPipeMain --headless '
+                        '--workdir C:\\out') == "C:\\out")
+    check("and from ps output, where a path with spaces is not quoted",
+          fs.workdir_of("/opt/fp/jre/bin/java FragPipeMain --headless --workdir "
+                        "/data/my run/out --threads 8") == "/data/my run/out")
+    here = os.path.abspath("run_out")
+    procs = [{"pid": 5, "ppid": 1, "cmd": 'bash -c "fragpipe --headless --workdir %s"' % here},
+             {"pid": 10, "ppid": 5, "cmd": 'fragpipe --headless --workdir "%s"' % here},
+             {"pid": 11, "ppid": 10, "cmd": "java FragPipeMain --headless --workdir %s" % here},
+             {"pid": 12, "ppid": 11, "cmd": "java -jar MSFragger.jar params"},
+             {"pid": 20, "ppid": 1, "cmd": "python fragpipe_run.py --workdir %s" % here},
+             {"pid": 30, "ppid": 1, "cmd": "fragpipe --headless --workdir %s2" % here},
+             {"pid": 40, "ppid": 1, "cmd": "fragpipe --headless --workdir run_out"}]
+    hits = fs.run_processes(procs, here)
+    check("only FragPipe headless processes of that workdir are picked: not the shell that "
+          "runs it, not the watcher, not a workdir that only starts the same, not a relative "
+          "workdir", [h["pid"] for h in hits] == [10, 11], str(hits))
+    check("the run's tree holds the tools it started",
+          [r["pid"] for r in fs.roots(hits)] == [10]
+          and sorted(fs.tree(procs, 10)) == [10, 11, 12])
+    check("a run with a relative workdir is still listed",
+          40 in [r["pid"] for r in fs.roots(fs.run_processes(procs))])
+    real = ("C:\\WINDOWS\\system32\\cmd.exe /c C:\\FP\\bin\\fragpipe.bat --headless "
+            "--workflow C:\\w.workflow --workdir C:\\out")
+    spaced = ('C:\\WINDOWS\\system32\\cmd.exe /c ""C:\\Program Files\\FP\\bin\\fragpipe.bat" '
+              '--headless --workdir "C:\\out dir""')
+    for cmd in (real, spaced, win,
+                'cmd /c "C:\\FP\\bin\\fragpipe.bat --headless --workdir C:\\out"',
+                "java -Xmx8G -cp lib/* org.nesvilab.fragpipe.FragPipeMain --headless",
+                "java -cp x com.dmtavt.fragpipe.FragPipeMain --headless",
+                "/bin/sh /opt/fragpipe/bin/fragpipe --headless --workdir /out",
+                "/opt/fragpipe/bin/fragpipe --headless --workdir /out"):
+        check("FragPipe is recognised: %s" % cmd[:70], fs.is_fragpipe(cmd))
+    for cmd in ("C:\\WINDOWS\\system32\\cmd.exe /c C:\\FP\\bin\\fragpipe.bat",
+                "C:\\WINDOWS\\system32\\cmd.exe /K C:\\FP\\bin\\fragpipe.bat --headless "
+                "--workdir C:\\out",
+                'powershell -Command "& C:\\FP\\bin\\fragpipe.bat --headless --workdir C:\\out"',
+                'bash -c "fragpipe --headless --workdir /out"',
+                'cmd.exe /c "python fragpipe_run.py --fragpipe C:\\FP\\bin\\fragpipe.bat '
+                '--headless"',
+                "python fragpipe_stop.py --workdir C:\\out --headless",
+                "java -jar MSFragger.jar --headless"):
+        check("a program that only names FragPipe, its GUI, or the console `start` leaves "
+              "open is not taken for it: %s" % cmd[:70], not fs.is_fragpipe(cmd))
+    launch = "cmd.exe /c C:\\FP\\bin\\fragpipe.bat --headless --workdir C:\\x"
+    stale = [{"pid": 70, "ppid": 1, "cmd": launch, "created": 200},
+             {"pid": 71, "ppid": 70, "cmd": "explorer.exe", "created": 100},
+             {"pid": 72, "ppid": 70, "cmd": "java FragPipeMain --headless --workdir C:\\x",
+              "created": 300}]
+    check("a process older than the PID it names as its parent is not in the run (Windows "
+          "hands a dead parent's PID to new processes)", sorted(fs.tree(stale, 70)) == [70, 72])
+    nested = [{"pid": 80, "ppid": 1, "cmd": "fragpipe --headless --workdir /a"},
+              {"pid": 81, "ppid": 80, "cmd": "java FragPipeMain --headless --workdir /b"}]
+    check("a run under another run's process is still listed as its own",
+          sorted(r["pid"] for r in fs.roots(fs.run_processes(nested))) == [80, 81])
+    jdk = tempfile.mkdtemp()
+    java = os.path.join(jdk, "My JDK", "bin", "java")
+    os.makedirs(os.path.dirname(java))
+    with open(java, "w") as fh:
+        fh.write("")
+    os.chmod(java, 0o755)
+    check("a JVM whose path has a space, as ps shows it unquoted, is recognised",
+          fs.is_fragpipe(java + " -cp x org.nesvilab.fragpipe.FragPipeMain --headless "
+                                "--workdir /out")
+          and not fs.is_fragpipe(java.replace("My JDK", "No JDK") + " -cp x "
+                                 "org.nesvilab.fragpipe.FragPipeMain --headless"))
+    check("a relative workdir may name a folder only by its end",
+          fs._tail_of(os.path.join(jdk, "proj", "out"), "out")
+          and fs._tail_of(os.path.join(jdk, "proj", "out"), os.path.join(".", "proj", "out"))
+          and not fs._tail_of(os.path.join(jdk, "proj", "out"), "ut"))
+    run = {"state": "running", "watcher_pid": 5, "started_at": "2026-10-30T10:00:00+00:00",
+           "pid": 9}
+    fs._write_json(os.path.join(jdk, fs.STATUS_NAME),
+                   dict(run, state="failed", error="MSFragger crashed", child_exit_code=1))
+    check("a run that ended on its own before the stop is not recorded as stopped",
+          fs.finish_status(jdk, run, False, 9) == "ended"
+          and not (fs.load_status(jdk) or {}).get("stopped"))
+    fs._write_json(os.path.join(jdk, fs.STATUS_NAME),
+                   dict(run, state="failed", error="MSFragger crashed"))
+    done, status = fs.finish_status(jdk, run, False, 9), fs.load_status(jdk) or {}
+    check("one that had already failed, with no watcher left, keeps its own error",
+          done == "written" and status.get("stopped") is True
+          and status.get("error") == "MSFragger crashed", str(status))
+    os.remove(os.path.join(jdk, fs.STATUS_NAME))
+    held = fs.lock_workdir(jdk)
+    saved, fs.WATCHER_SEC = fs.WATCHER_SEC, 1
+    try:
+        check("a folder whose lock is held is seen as having a live watcher",
+              held is not None and fs.watcher_holds(jdk))
+        check("and the stop leaves that watcher's status to it",
+              fs.finish_status(jdk, None, False, 9, held=True) == "pending"
+              and fs.load_status(jdk) is None)
+        held.close()
+        check("until it has exited", not fs.watcher_holds(jdk)
+              and fs.finish_status(jdk, None, False, 9, held=True) == "watcher")
+        fs._write_json(os.path.join(jdk, fs.STATUS_NAME), run)
+        held = fs.lock_workdir(jdk)
+        check("a live watcher's status is never written over, however long it takes",
+              fs.finish_status(jdk, run, True, 9, held=True) == "pending"
+              and not (fs.load_status(jdk) or {}).get("stopped"))
+        held.close()
+        done, status = fs.finish_status(jdk, run, True, 9, held=True), fs.load_status(jdk) or {}
+        check("and once it has exited without recording the stop, the script records it",
+              done == "written" and status.get("stopped") is True
+              and status.get("error") == fs.STOPPED_ERROR, "%s %s" % (done, status))
+        os.remove(os.path.join(jdk, fs.STATUS_NAME))
+    finally:
+        fs.WATCHER_SEC = saved
+    import errno
+    if os.name == "nt":
+        import msvcrt as locker
+        name = "locking"
+    else:
+        import fcntl as locker
+        name = "flock"
+    real = getattr(locker, name)
+    try:
+        def no_locks(*a):
+            raise OSError(errno.ENOLCK, "No locks available")
+        setattr(locker, name, no_locks)
+        try:
+            fs.lock_workdir(jdk)
+            unsupported = False
+        except OSError:
+            unsupported = True
+        check("a filesystem that cannot lock (NFS without lockd) is not taken for a held lock",
+              unsupported and not fs.watcher_holds(jdk))
+    finally:
+        setattr(locker, name, real)
+    tool = {"pid": 90, "ppid": 1, "cmd": "java -jar MSFragger.jar %s"
+            % os.path.join(jdk, "out", "fragger.params")}
+    procs = [tool,
+             {"pid": 91, "ppid": 1, "cmd": "notepad %s" % os.path.join(jdk, "out2", "x.txt")},
+             {"pid": 92, "ppid": 1, "cmd": "python fragpipe_stop.py --workdir %s"
+              % os.path.join(jdk, "out")}]
+    out_dir = os.path.join(jdk, "out")
+    os.makedirs(out_dir)
+    check("the processes that name a workdir are found, not those of a folder that starts "
+          "the same, nor this skill's own scripts",
+          [x["pid"] for x in fs.naming(procs, out_dir)] == [90])
+    rc, out = _quiet(fs._nothing_found, procs, out_dir, {"state": "running"})
+    check("when FragPipe is gone but its status says running, the tools left are named "
+          "(exit 1)", rc == fs.EXIT_NOT_STOPPED and "PID 90" in out, out)
+    rc, out = _quiet(fs._nothing_found, procs, out_dir, {"state": "succeeded"})
+    check("after a finished run they are only noted (exit 4)",
+          rc == fs.EXIT_NOTHING and "PID 90" in out, out)
+    rc, out = _quiet(fs._nothing_found, procs, out_dir,
+                     {"state": "running", "host": "another-computer"})
+    check("a run whose status says it runs on another computer is not called idle (exit 1)",
+          rc == fs.EXIT_NOT_STOPPED and "another-computer" in out
+          and "Nothing is running" not in out, out)
+    rc, out = _quiet(fs._nothing_found, procs, out_dir, None, True)
+    check("nor one whose watcher holds the folder from another computer (exit 1)",
+          rc == fs.EXIT_NOT_STOPPED and "another computer" in out
+          and "Nothing is running" not in out, out)
+    mine = procs + [{"pid": 95, "ppid": 1, "cmd": "python fragpipe_run.py --workdir %s"
+                     % out_dir}]
+    rc, out = _quiet(fs._nothing_found, mine, out_dir, None, True)
+    check("nor one whose watcher is here while FragPipe starts or ends (exit 1)",
+          rc == fs.EXIT_NOT_STOPPED and "PID 95" in out and "again" in out, out)
+    me = {"pid": os.getpid(), "ppid": 1, "cmd": "python", "name": "python.exe", "session": 1}
+    elevated = {"pid": 96, "ppid": 1, "cmd": "", "name": "java.exe", "session": 1}
+    rc, out = _quiet(fs._nothing_found, mine + [me, elevated], out_dir, None, True)
+    check("an unrelated Java run as administrator does not make a visible watcher's run "
+          "read as started as administrator", rc == fs.EXIT_NOT_STOPPED and "again" in out
+          and "started as administrator" not in out, out)
+    rc, out = _quiet(fs._nothing_found, procs, out_dir,
+                     {"state": "failed", "host": "another-computer",
+                      "tools_left": [{"pid": 97, "cmd": "java -jar MSFragger.jar"}]})
+    check("tools another computer's run left are not called nothing (exit 1)",
+          rc == fs.EXIT_NOT_STOPPED and "another-computer" in out and "97" in out
+          and "Nothing is running" not in out, out)
+    was_windows = fs.WINDOWS
+    try:
+        fs.WINDOWS = True
+        launched = [{"pid": 100, "ppid": 1, "cmd": "cmd.exe /c fragpipe.bat", "created": 10},
+                   {"pid": 101, "ppid": 100, "cmd": "java FragPipeMain", "created": 11,
+                    "name": "java.exe"},
+                   {"pid": 106, "ppid": 100, "cmd": "conhost.exe", "created": 11,
+                    "name": "conhost.exe"},
+                   {"pid": 102, "ppid": 101, "cmd": "java -jar MSFragger.jar", "created": 12}]
+        anchors = fs.fragpipe_pids(launched, 100)
+        check("Windows: FragPipe's own processes are its launcher and the JVM, not the tools "
+              "that JVM starts", anchors == {100: 10, 101: 11}, str(anchors))
+        after = [{"pid": 102, "ppid": 101, "cmd": "java -jar MSFragger.jar", "created": 12},
+                 {"pid": 103, "ppid": 102, "cmd": "a tool's own child", "created": 13},
+                 {"pid": 104, "ppid": 101, "cmd": "older than the JVM", "created": 5},
+                 {"pid": 101, "ppid": 1, "cmd": "a newer owner of the JVM's PID", "created": 30},
+                 {"pid": 105, "ppid": 101, "cmd": "that owner's child", "created": 31},
+                 {"pid": 107, "ppid": 102, "cmd": "conhost.exe 0x4", "created": 12,
+                  "name": "conhost.exe"}]
+        check("Windows: once the JVM has died, the tools it left are found, not a newer "
+              "owner of its PID or that owner's children, nor a tool's conhost.exe",
+              sorted(x["pid"] for x in fs.tools_left(after, 100, anchors)) == [102, 103],
+              str(fs.tools_left(after, 100, anchors)))
+        fs.WINDOWS = False
+        group = [{"pid": 200, "ppid": 1, "pgid": 150, "cmd": "java -jar MSFragger.jar"},
+                 {"pid": 201, "ppid": 1, "pgid": 151, "cmd": "another group"},
+                 {"pid": 202, "ppid": 200, "pgid": 150, "cmd": "done <defunct>"}]
+        check("POSIX: the tools left are the run's process group",
+              [x["pid"] for x in fs.tools_left(group, 150, {})] == [200])
+    finally:
+        fs.WINDOWS = was_windows
+    tool = {"pid": 200, "cmd": "java -jar MSFragger.jar", "created": None}
+    here_host = socket.gethostname()
+    check("the tools a status records are still running only with the same command line, "
+          "on this computer",
+          [x["pid"] for x in fs.tools_still_running(group, {"tools_left": [tool],
+                                                            "host": here_host})] == [200]
+          and not fs.tools_still_running(group, {"tools_left": [dict(tool, cmd="other")]})
+          and not fs.tools_still_running(group, {"tools_left": [tool], "host": "elsewhere"}))
+    elevated = [{"pid": 300, "ppid": 1, "cmd": "", "created": 77}]
+    recorded = {"tools_left": [{"pid": 300, "cmd": "java -jar MSFragger.jar", "created": 77}]}
+    seen = fs.tools_still_running(elevated, recorded)
+    check("a tool run as administrator, whose command line cannot be read, still counts by "
+          "its start time", [x["pid"] for x in seen] == [300] and seen[0].get("hidden")
+          and not fs.tools_still_running([dict(elevated[0], created=78)], recorded))
+    me = {"pid": os.getpid(), "ppid": 1, "cmd": "python", "name": "python.exe", "session": 1}
+    hidden = [me, {"pid": 93, "ppid": 1, "cmd": "", "name": "java.exe", "session": 1},
+              {"pid": 94, "ppid": 1, "cmd": "", "name": "java.exe", "session": 0}]
+    check("a Java process in this session whose command line cannot be read is noted (Windows)",
+          [x["pid"] for x in fs.hidden_java(hidden)] == ([93] if os.name == "nt" else []))
+    link = os.path.join(jdk, "link")
+    try:
+        os.symlink(out_dir, link)
+    except (OSError, NotImplementedError):
+        link = None
+    if link:
+        check("a workdir named through a symlink is the same folder",
+              fs._same_dir(out_dir, link) and not fs._same_dir(out_dir, jdk))
+    shutil.rmtree(jdk, ignore_errors=True)
+
+    tmp = tempfile.mkdtemp()
+    watcher = other = bare = rel = alone = watched = standin = None
+    try:
+        root = os.path.join(tmp, "FragPipe-24.1-build61")
+        launcher = _make_install(root, "24.1-build61")
+        if " " in launcher:                # FragPipe refuses such a path
+            print("  SKIP  live stop test: a space in %s" % launcher)
+            return
+        fake = os.path.join(tmp, "fake_fragpipe.py")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write(_FAKE_FRAGPIPE)
+        if os.name == "nt":
+            with open(launcher, "w", newline="\r\n") as fh:
+                fh.write('@echo off\n"%s" -I "%s" %%*\n' % (sys.executable, fake))
+        else:
+            with open(launcher, "w") as fh:
+                fh.write('#!/bin/sh\n"%s" -I "%s" "$@"\n' % (sys.executable, fake))
+            os.chmod(launcher, 0o755)
+        data = os.path.join(tmp, "data")
+        os.makedirs(data)
+        open(os.path.join(data, "a.mzML"), "w").close()
+        man = os.path.join(tmp, "files.fp-manifest")
+        with open(man, "w", encoding="utf-8") as fh:
+            fh.write("%s\texp\t1\tDDA\n" % os.path.join(data, "a.mzML"))
+        wf = os.path.join(tmp, "fragpipe.workflow")
+        with open(wf, "w", encoding="utf-8") as fh:
+            fh.write("database.decoy-tag=rev_\n")
+        wd = os.path.join(tmp, "out")
+        with open(os.path.join(tmp, "watcher.log"), "w") as log:
+            watcher = subprocess.Popen(
+                [sys.executable, "-I", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                    "fragpipe_run.py"),
+                 "--workflow", wf, "--manifest", man, "--workdir", wd,
+                 "--fragpipe-dir", root, "--quiet"], stdout=log, stderr=subprocess.STDOUT)
+        child_pid_file = os.path.join(wd, "fake_child.pid")
+        deadline = time.time() + 60
+        while time.time() < deadline and not (
+                os.path.isfile(child_pid_file) and (fs.load_status(wd) or {}).get("pid")):
+            time.sleep(0.3)
+        check("the fake run starts", os.path.isfile(child_pid_file))
+        if not os.path.isfile(child_pid_file):
+            return
+        with open(child_pid_file) as fh:
+            child = int(fh.read())
+        procs = fs.list_processes()
+        before = fs.snapshot(procs, [pid for r in fs.roots(fs.run_processes(procs, wd))
+                                     for pid in fs.tree(procs, r["pid"])])
+        check("the run is found with the tool it started",
+              child in before and len(before) >= 2, str(before))
+
+        import fragpipe_run as fr
+        rc, out = _quiet(fr.main, ["--workflow", wf, "--manifest", man, "--workdir", wd,
+                                   "--fragpipe-dir", root, "--quiet"])
+        check("fragpipe_run.py refuses a second run in the same workdir (exit 2)",
+              rc == fr.EXIT_CONFIG_ERROR and "already running" in out
+              and watcher.poll() is None, out[-300:])
+        rc, out = _quiet(fs.main, [])
+        check("with no workdir, the running runs are listed",
+              rc == fs.EXIT_STOPPED and os.path.normcase(wd) in os.path.normcase(out), out)
+        rc, out = _quiet(fs.main, ["--workdir", wd])
+        check("without --yes nothing is stopped (exit 3)",
+              rc == fs.EXIT_CONFIRM and watcher.poll() is None
+              and fs._alive(fs.list_processes(), before) == sorted(before), out)
+        rc, out = _quiet(fs.main, ["--workdir", wd, "--yes"])
+        check("--yes stops it (exit 0)", rc == fs.EXIT_STOPPED, out)
+        try:
+            watcher_rc = watcher.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            watcher_rc = None
+        check("FragPipe and the tool it started are gone",
+              fs._alive(fs.list_processes(), before) == [])
+        status = fs.load_status(wd) or {}
+        check("the watcher exits 1 and records the run as stopped by the user",
+              watcher_rc == 1 and status.get("state") == "failed"
+              and status.get("stopped") is True and status.get("error") == fs.STOPPED_ERROR,
+              "rc=%s %s" % (watcher_rc, {k: status.get(k) for k in ("state", "error",
+                                                                     "stopped")}))
+        check("the stop request is removed", not os.path.exists(os.path.join(wd, fs.STOP_NAME)))
+        rc, out = _quiet(fs.main, ["--workdir", wd, "--yes"])
+        check("stopping it again finds nothing (exit 4)", rc == fs.EXIT_NOTHING, out)
+        rc, out = _quiet(fs.main, ["--workdir", os.path.join(tmp, "none"), "--yes"])
+        check("a workdir that does not exist is refused (exit 2)", rc == fs.EXIT_BAD_ARGS, out)
+        odd = os.path.join(tmp, "\u6570\u636e out")
+        os.makedirs(odd)
+        r = subprocess.run([sys.executable, "-I", fs.__file__, "--workdir", odd],
+                           capture_output=True, timeout=120)
+        check("a non-ASCII workdir does not crash the script on a console that cannot show it",
+              r.returncode == fs.EXIT_NOTHING and b"Traceback" not in r.stderr,
+              (r.stdout + r.stderr).decode("utf-8", "replace")[-300:])
+
+        # started outside fragpipe_run.py, over a status file an earlier run left
+        wd3 = os.path.join(tmp, "out3")
+        os.makedirs(wd3)
+        fs._write_json(os.path.join(wd3, fs.STATUS_NAME),
+                       {"state": "succeeded", "pid": 1, "summary": "SUCCEEDED - an earlier run"})
+        scratch = os.path.join(data, "a.mzBIN_calibrated")
+        open(scratch, "w").close()
+        bare = subprocess.Popen([launcher, "--headless", "--workflow", wf, "--manifest", man,
+                                 "--workdir", wd3], stdout=subprocess.DEVNULL,
+                                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                                   if os.name == "nt" else {"start_new_session": True}))
+        deadline = time.time() + 60
+        while time.time() < deadline and not os.path.isfile(os.path.join(wd3, "fake_child.pid")):
+            time.sleep(0.3)
+        rc, out = _quiet(fr.main, ["--workflow", wf, "--manifest", man, "--workdir", wd3,
+                                   "--fragpipe-dir", root, "--quiet"])
+        check("and refuses one where FragPipe runs without a watcher, naming its PID",
+              rc == fr.EXIT_CONFIG_ERROR and "PID %d" % bare.pid in out, out[-300:])
+        rc, out = _quiet(fs.main, ["--workdir", wd3])
+        check("an earlier run's status is not shown as this run's",
+              rc == fs.EXIT_CONFIRM and "an earlier run" not in out
+              and "no status file from this run" in out, out)
+        rc, out = _quiet(fs.main, ["--workdir", wd3, "--yes"])
+        status = fs.load_status(wd3) or {}
+        check("with no watcher, the script records the stop itself",
+              rc == fs.EXIT_STOPPED and status.get("state") == "failed"
+              and status.get("stopped") is True and status.get("source") == "fragpipe_stop.py"
+              and status.get("pid") == bare.pid
+              and not os.path.exists(os.path.join(wd3, fs.STOP_NAME)), out + str(status))
+        check("MSFragger's scratch files next to the inputs are listed", scratch in out, out)
+        try:
+            bare.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        check("and the run is gone", bare.poll() is not None
+              and not fs.run_processes(fs.list_processes(), wd3))
+
+        # a status file left from a crash, whose PID the system now uses elsewhere
+        other = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(600)"])
+        wd2 = os.path.join(tmp, "out2")
+        os.makedirs(wd2)
+        fs._write_json(os.path.join(wd2, fs.STATUS_NAME),
+                       {"state": "running", "pid": other.pid, "watcher_pid": other.pid})
+        rc, out = _quiet(fs.main, ["--workdir", wd2, "--yes"])
+        check("a PID that is not FragPipe for this workdir is never killed",
+              rc == fs.EXIT_NOTHING and other.poll() is None, out)
+        rc, out = _quiet(fs.main, ["--pid", str(other.pid), "--yes"])
+        check("nor one named with --pid (exit 4)",
+              rc == fs.EXIT_NOTHING and other.poll() is None, out)
+
+        # FragPipe itself ended alone: its tool is left with nothing tying it to the run
+        wd5 = os.path.join(tmp, "out5")
+        os.makedirs(wd5)
+        fs._write_json(os.path.join(wd5, fs.STATUS_NAME), {"state": "running"})
+        alone = subprocess.Popen([launcher, "--headless", "--workflow", wf, "--manifest", man,
+                                  "--workdir", wd5], stdout=subprocess.DEVNULL,
+                                 **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                                    if os.name == "nt" else {"start_new_session": True}))
+        deadline = time.time() + 60
+        while time.time() < deadline and not os.path.isfile(os.path.join(wd5, "fake_child.pid")):
+            time.sleep(0.3)
+        with open(os.path.join(wd5, "fake_child.pid")) as fh:
+            orphan = int(fh.read())
+        jvm = [x["pid"] for x in fs.list_processes()
+               if x["ppid"] == alone.pid and "fake_fragpipe" in x["cmd"]]
+        for pid in jvm:                     # ours: the fake FragPipe this test started
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            else:
+                os.kill(pid, 9)
+        try:
+            alone.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        rc, out = _quiet(fs.main, ["--workdir", wd5, "--yes"])
+        orphan_alive = orphan in fs.snapshot(fs.list_processes(), [orphan])
+        check("when FragPipe was ended alone, the tool it left is named, not stopped (exit 1)",
+              len(jvm) == 1 and rc == fs.EXIT_NOT_STOPPED and "PID %-7d" % orphan in out
+              and orphan_alive, out)
+        if orphan_alive and "fragger.params" in (fs.snapshot(fs.list_processes(), [orphan])
+                                                 .get(orphan, ("",))[0]):
+            if os.name == "nt":             # ours too: the fake tool started above
+                subprocess.run(["taskkill", "/PID", str(orphan), "/F"], capture_output=True)
+            else:
+                os.kill(orphan, 9)
+
+        # FragPipe's JVM ended alone under its watcher, which records the tool it left
+        wd6 = os.path.join(tmp, "out6")
+        with open(os.path.join(tmp, "watcher6.log"), "w") as log:
+            watched = subprocess.Popen(
+                [sys.executable, "-I", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                    "fragpipe_run.py"),
+                 "--workflow", wf, "--manifest", man, "--workdir", wd6,
+                 "--fragpipe-dir", root, "--quiet"], stdout=log, stderr=subprocess.STDOUT)
+        deadline = time.time() + 60
+        while time.time() < deadline and not (
+                os.path.isfile(os.path.join(wd6, "fake_child.pid"))
+                and (fs.load_status(wd6) or {}).get("pid")
+                and (os.name != "nt" or (fs.load_status(wd6) or {}).get("fragpipe_pids"))):
+            time.sleep(0.3)
+        status = fs.load_status(wd6) or {}
+        with open(os.path.join(wd6, "fake_child.pid")) as fh:
+            orphan = int(fh.read())
+        jvm = [x["pid"] for x in fs.list_processes()
+               if x["ppid"] == status.get("pid") and "fake_fragpipe" in x["cmd"]]
+        for pid in jvm:                     # ours: the fake FragPipe this test started
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            else:
+                os.kill(pid, 9)
+        try:
+            watched_rc = watched.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            watched_rc = None
+        status = fs.load_status(wd6) or {}
+        check("when FragPipe's JVM is ended alone, its watcher exits 1 and records the tool "
+              "it left", len(jvm) == 1 and watched_rc == 1
+              and [t.get("pid") for t in status.get("tools_left") or []] == [orphan]
+              and "still running" in (status.get("error") or ""),
+              "rc=%s %s" % (watched_rc, {k: status.get(k) for k in ("error", "tools_left")}))
+        rc, out = _quiet(fr.main, ["--workflow", wf, "--manifest", man, "--workdir", wd6,
+                                   "--fragpipe-dir", root, "--quiet"])
+        check("a new run there is refused while that tool runs (exit 2)",
+              rc == fr.EXIT_CONFIG_ERROR and "PID %d" % orphan in out, out[-300:])
+        rc, out = _quiet(fs.main, ["--workdir", wd6])
+        check("the stop shows that tool (exit 3)",
+              rc == fs.EXIT_CONFIRM and "PID %-7d" % orphan in out
+              and orphan in fs.snapshot(fs.list_processes(), [orphan]), out)
+        rc, out = _quiet(fs.main, ["--workdir", wd6, "--yes"])
+        status = fs.load_status(wd6) or {}
+        check("and with --yes stops it (exit 0), and the status no longer says it runs",
+              rc == fs.EXIT_STOPPED and orphan not in fs.snapshot(fs.list_processes(), [orphan])
+              and status.get("stopped") is True and status.get("tools_left") == []
+              and "still running" not in (status.get("error") or "")
+              + (status.get("summary") or "")
+              and fs.STOPPED_ERROR in (status.get("summary") or ""),
+              out + str({k: status.get(k) for k in ("stopped", "tools_left", "summary")}))
+        fs._write_json(os.path.join(wd6, fs.STATUS_NAME),
+                       dict(status, host="another-computer", stopped=False,
+                            tools_left=[{"pid": orphan, "cmd": "java", "created": None}]))
+        rc, out = _quiet(fr.runs_in, wd6, os.path.join(wd6, fs.STATUS_NAME))
+        check("a relaunch is warned of tools another computer's run left there",
+              rc == ([], []) and "another-computer" in out, out)
+
+        # a watcher holds the folder before FragPipe starts, over an earlier run's status
+        wd7 = os.path.join(tmp, "out7")
+        os.makedirs(wd7)
+        fs._write_json(os.path.join(wd7, fs.STATUS_NAME),
+                       {"state": "succeeded", "child_exit_code": 0, "watcher_pid": 1, "pid": 1,
+                        "host": socket.gethostname()})
+        standin_py = os.path.join(tmp, "standin", "fragpipe_run.py")
+        os.makedirs(os.path.dirname(standin_py))
+        with open(standin_py, "w", encoding="utf-8") as fh:
+            fh.write(_STANDIN_WATCHER)
+        standin = subprocess.Popen([sys.executable, "-I", standin_py,
+                                    os.path.dirname(os.path.abspath(fs.__file__)),
+                                    "--workdir", wd7])
+        deadline = time.time() + 30
+        while time.time() < deadline and not fs.watcher_holds(wd7):
+            time.sleep(0.2)
+        calls = []
+        real_list, saved_start = fs.list_processes, fs.START_SEC
+        try:
+            fs.list_processes = lambda: calls.append(1) or real_list()
+            fs.START_SEC = 1
+            rc, out = _quiet(fs.main, ["--workdir", wd7])
+        finally:
+            fs.list_processes, fs.START_SEC = real_list, saved_start
+        check("a stop while the watcher starts waits for FragPipe, even over an earlier "
+              "run's final status (exit 1 when none comes)",
+              len(calls) >= 2 and rc == fs.EXIT_NOT_STOPPED and "again" in out,
+              "%d listings: %s" % (len(calls), out))
+        standin.kill()                      # ours: the stand-in started above
+        standin.wait(timeout=30)
+
+        # started with a relative --workdir, which only Linux can resolve
+        wd4 = os.path.join(tmp, "out4")
+        os.makedirs(wd4)
+        rel = subprocess.Popen([launcher, "--headless", "--workflow", wf, "--manifest", man,
+                                "--workdir", "out4"], cwd=tmp, stdout=subprocess.DEVNULL,
+                               **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                                  if os.name == "nt" else {"start_new_session": True}))
+        deadline = time.time() + 60
+        while time.time() < deadline and not os.path.isfile(os.path.join(wd4, "fake_child.pid")):
+            time.sleep(0.3)
+        rc, out = _quiet(fs.main, [])
+        check("a run with a relative workdir is listed with its PID",
+              rc == fs.EXIT_STOPPED and str(rel.pid) in out, out)
+        rc, out = _quiet(fs.main, ["--workdir", wd4])
+        if os.path.isdir("/proc/self"):
+            check("on Linux its workdir is resolved from its own folder (exit 3)",
+                  rc == fs.EXIT_CONFIRM, out)
+        else:
+            check("elsewhere its folder is not called idle: it is named as a run that may be "
+                  "the one (exit 1)", rc == fs.EXIT_NOT_STOPPED and "--pid" in out
+                  and str(rel.pid) in out, out)
+        rc, out = _quiet(fs.main, ["--pid", str(rel.pid)])
+        check("--pid without --yes stops nothing (exit 3)",
+              rc == fs.EXIT_CONFIRM and rel.poll() is None, out)
+        rc, out = _quiet(fs.main, ["--pid", str(rel.pid), "--yes"])
+        try:
+            rel.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        check("--pid --yes stops it and the tool it started",
+              rc == fs.EXIT_STOPPED and rel.poll() is not None
+              and not [h for h in fs.run_processes(fs.list_processes())
+                       if h["pid"] == rel.pid], out)
+    finally:
+        started = [p.pid for p in (watcher, bare, rel, alone, watched) if p is not None]
+        try:
+            procs = fs.list_processes()
+            left = [h for h in fs.run_processes(procs)
+                    if any(h["pid"] in fs.tree(procs, pid) for pid in started)
+                    or h["workdir"] and os.path.normcase(os.path.dirname(h["workdir"]))
+                    == os.path.normcase(tmp)]
+            # and the fake tools a failed check may have left: they sleep, naming tmp
+            left += [dict(x, workdir=None) for x in procs if "time.sleep(600)" in x["cmd"]
+                     and os.path.normcase(tmp) in os.path.normcase(x["cmd"])]
+            if left:
+                fs.kill(procs, left)
+        except Exception:
+            pass
+        for proc in (watcher, other, bare, rel, alone, watched, standin):
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_rebuild_shipped(workflows_dir: str, version: str) -> None:
     """Every shipped workflow comes back key for key from its own answers."""
     import build_workflow as bw
@@ -2712,6 +3304,7 @@ def main(argv=None) -> int:
     test_design_sheet()
     test_builder_flow()
     test_tmt_annotations()
+    test_stop()
 
     installs = _builder_installs(args.fragpipe_dir)
     if not installs:

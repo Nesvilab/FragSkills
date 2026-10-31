@@ -88,9 +88,25 @@ produces them.
 
 ## Stopping a run
 
-`fragpipe_run.py` kills the whole process tree on interrupt (`taskkill /F /T` on Windows, process
-group signal on Unix). Killing `fragpipe.bat` alone leaves MSFragger and DIA-NN running — always go
-through the launcher, or kill the tree explicitly.
+Use `fragpipe_stop.py` (SKILL.md, "Stopping a run"). It finds the run by its workdir, also when it
+was started outside `fragpipe_run.py`, and ends FragPipe and every tool it started. Ctrl-C on
+`fragpipe_run.py` in a terminal also ends the whole tree.
+
+Do not end one process of a run on its own. After `fragpipe.bat` (Windows) or the
+`fragpipe_run.py` watcher is ended, FragPipe keeps running, and `fragpipe_stop.py --workdir <dir>
+--yes` still stops it. After the FragPipe JVM itself is ended (on Linux and macOS the `fragpipe`
+launcher becomes that JVM), MSFragger, IonQuant, DIA-NN and the rest keep running. When a
+`fragpipe_run.py` watcher was still going, it records them as `tools_left` in the status file,
+refuses a new run in that workdir on the same computer while they run (from another computer it
+warns), and `fragpipe_stop.py --workdir <dir> --yes` stops them. Otherwise nothing ties them to the
+run: `fragpipe_stop.py` finds no run, and lists the
+processes whose command line names the workdir, such as MSFragger's `java -jar ...
+<workdir>/fragger.params`. End the ones the user confirms by hand: Task Manager, Details tab, End
+process tree, or `kill` on Linux and macOS.
+
+The status file records the computer a run started on (`host`). For a workdir on a shared drive,
+`fragpipe_stop.py` on another computer cannot see the run's processes; it says so and names the
+computer to stop it from.
 
 ## Re-running into a used workdir
 

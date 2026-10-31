@@ -187,8 +187,9 @@ data type, non-integer bioreplicate, a file or folder name that 24.1-build8 and 
 path Windows cannot open, diaTracer's `_diatracer.mzML` output listed as an input on
 24.1-build61 or later, DIA-Umpire's `_Q1`/`_Q2`/`_Q3` output listed with its run or typed DIA,
 two inputs with the same file name, or two in one folder that differ only in extension, such as
-`ctrl_1.raw` and `ctrl_1.mzML`, whose searches would overwrite each other),
-**3** FragPipe folder not confirmed, **4** no FragPipe installation found, **5** a builder-made
+`ctrl_1.raw` and `ctrl_1.mzML`, whose searches would overwrite each other), a FragPipe run
+already going in that workdir, or tools the last run there left running (stop them with
+`fragpipe_stop.py`), **3** FragPipe folder not confirmed, **4** no FragPipe installation found, **5** a builder-made
 workflow whose plan is not confirmed or has changed since.
 
 ## Reporting progress while it runs
@@ -214,6 +215,61 @@ with no task boundary), and relay the percentage, the current task, and elapsed 
 `MSBooster`, `IonQuant`, `DIA-NN`, and `SpecLibGen` are the slow stages; a run sitting on one of
 them is normal, not stuck. Sub-stage milestones (`FIRST SEARCH DONE IN 0.83 MIN`, etc.) appear in
 the `milestones` field. Do not claim a run finished until the state is `succeeded`.
+
+## Stopping a run
+
+Stop a run only when the user asks, and only after they have seen which run it is and confirmed:
+the hours it has run are lost, and FragPipe cannot resume, so running the same command again
+starts from the beginning.
+
+```bash
+python scripts/fragpipe_stop.py                              # list the FragPipe runs going now
+python scripts/fragpipe_stop.py --workdir D:/run/out         # show what would be stopped (exit 3)
+python scripts/fragpipe_stop.py --workdir D:/run/out --yes   # stop it, after the user confirms
+python scripts/fragpipe_stop.py --pid 1234 --yes             # a run listed with --pid
+```
+
+Without a workdir it lists every FragPipe headless run on the computer with its workdir; ask which
+one when there are several. It stops FragPipe and every tool it started (MSFragger, IonQuant, DIA-NN
+and the rest) and checks that they are gone. It picks the run by its program, FragPipe's launcher or
+JVM with `--headless` and this `--workdir` among its own arguments, so it works on runs started
+outside this skill too, and it never touches a shell that only mentions FragPipe or a PID the system
+has given to another program. A run started with a relative `--workdir` is listed with its PID; stop
+it with `--pid` (on Linux, `--workdir` usually finds it too). When `--workdir` exits 1 and names
+such a run, it may be the one: show it to the user, and stop it by PID once they confirm. When it
+exits 4 but the user says a run is going, list every run with no options before saying there is
+nothing to stop.
+
+After a stop, the status file reads `failed` with `stopped by the user`, and `fragpipe_run.py` exits
+1; when no watcher is left, the script writes the status file itself. Do not stop a run by ending
+`fragpipe_run.py`, its background task, or one process in Task Manager: that can leave FragPipe and
+its tools running.
+
+When FragPipe itself was ended on its own (in Task Manager, or by the system running out of memory),
+its tools can keep running. A run started with `fragpipe_run.py` records them: the watcher exits 1
+with `tools_left` in the status file and names their PIDs, a new run in that workdir on the same
+computer is refused until they are gone (from another computer it only warns), and
+`fragpipe_stop.py --workdir <dir>` shows them (exit 3) and stops them with `--yes` once the user
+confirms; the status file then says they were stopped by the user. Otherwise nothing ties them to
+the run: the script lists the
+processes whose command line names the workdir (exit 1 while the status file says the run is still
+going). Show them to the user, and have them end the ones they confirm in Task Manager (End process
+tree) or with `kill`.
+
+Exit 1 can also mean the run cannot be stopped from here. When the status file says it runs on
+another computer, or the workdir is shared with one, stop it there. A run started from an
+Administrator prompt cannot be seen from a normal one; when the script says so, tell the user to
+run it from a prompt opened with Run as administrator. When it says FragPipe may be starting or
+just ending, run it again in a few seconds.
+
+A stop during the MSFragger search can leave its scratch files, `<name>.mzBIN_calibrated` and
+`<name>.ms1bin`, next to the input files (a finished run removes them); the script lists the
+ones it finds. Tell the user, and delete them only if they ask.
+
+Exit codes: **0** stopped (or listed), **1** could not stop it, or what is left needs the user (a
+run with a relative workdir that may be the one, or tools FragPipe left running; the message names
+the PIDs), **2** bad arguments or no such folder, **3** found a run but `--yes` was not given (show
+it to the user and confirm), **4** nothing is running there.
 
 ## Reading the output
 

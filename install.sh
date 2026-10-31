@@ -143,7 +143,7 @@ install_commands() {
             rm -f "$COMMANDS_DIR"/fragskills-*.md
             ok "removed the old /fragskills-* command copies from $COMMANDS_DIR"
         fi
-        ok "the commands load with the skill: /fragskills:new, :run, :status, :report"
+        ok "the commands load with the skill: /fragskills:new, :run, :status, :report, :stop"
         # Claude Code looks for plugins only in the folder it starts in.
         if [ "$MODE" = "project" ]; then
             info "      (when Claude Code starts in $PROJECT_DIR itself and you trust it;"

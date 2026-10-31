@@ -306,7 +306,7 @@ if /i "%SKILL_NAME%"=="fragskills" if exist "!COMMANDS_DIR!\fragskills-*.md" (
     del /Q "!COMMANDS_DIR!\fragskills-*.md" >nul 2>&1
     call :ok "removed the old /fragskills-* command copies from !COMMANDS_DIR!"
 )
-call :ok "the commands load with the skill: /fragskills:new, :run, :status, :report"
+call :ok "the commands load with the skill: /fragskills:new, :run, :status, :report, :stop"
 REM Claude Code looks for plugins only in the folder it starts in.
 if /i not "%MODE%"=="project" exit /b 0
 echo       (when Claude Code starts in !PROJECT_DIR! itself and you trust it;

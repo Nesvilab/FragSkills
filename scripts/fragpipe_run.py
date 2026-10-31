@@ -40,6 +40,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -52,6 +53,10 @@ from fragpipe_progress import (  # noqa: E402
 )
 from check_fragpipe import (  # noqa: E402
     EXPLICIT_SOURCES, is_explicit, locate, render,
+)
+from fragpipe_stop import (  # noqa: E402
+    LOCK_NAME, STOP_NAME, STOPPED_ERROR, fragpipe_pids, is_fragpipe, list_processes,
+    lock_workdir, naming, roots, run_processes, tools_left, tools_still_running,
 )
 from fragskills_plan import LOCK_REFUSED, check_lock, is_builder_made  # noqa: E402
 from make_manifest import check_manifest, has_diatracer_filter, has_name_rules  # noqa: E402
@@ -212,6 +217,45 @@ def kill_tree(proc: subprocess.Popen) -> None:
             pass
 
 
+def _read_status(path: str) -> Optional[dict]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def runs_in(workdir: str, status_path: str) -> Tuple[List[dict], List[dict]]:
+    """FragPipe runs already writing to *workdir*, and the tools an earlier run there
+    left running, as its status file records them; none when processes cannot be
+    listed."""
+    try:
+        procs = list_processes()
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print("[fragskills] warning: cannot list processes (%s); not checking for another "
+              "run in %s" % (exc, workdir), file=sys.stderr)
+        return [], []
+    last = _read_status(status_path) or {}
+    tools = tools_still_running(procs, last)
+    host = last.get("host")
+    if host not in (None, socket.gethostname()) and last.get("tools_left") \
+            and not last.get("stopped"):    # this computer cannot see them, nor refuse for them
+        print("[fragskills] warning: the last run in %s, on %s, left tools running (PID %s); "
+              "they may still be writing there. Check on %s with fragpipe_stop.py --workdir %s"
+              % (workdir, host, ", ".join(str(t.get("pid")) for t in last["tools_left"]
+                                          if isinstance(t, dict)), host, workdir),
+              file=sys.stderr)
+    known = {p["pid"] for p in tools}
+    left = [p for p in naming(procs, workdir) if not is_fragpipe(p["cmd"])
+            and p["pid"] not in known]
+    if left:        # e.g. MSFragger, left running when its FragPipe was ended on its own
+        print("[fragskills] warning: these processes name %s on their command line; if one is "
+              "a tool an earlier FragPipe run left running, it may still be writing there:\n%s"
+              % (workdir, "\n".join("    PID %-7d %s" % (p["pid"], p["cmd"][:150])
+                                     for p in left)), file=sys.stderr)
+    return roots(run_processes(procs, workdir)), tools
+
+
 def collect_outputs(workdir: str) -> dict:
     """Light-weight inventory so the status file points at the real results."""
     try:
@@ -300,8 +344,39 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
+    # two runs in one folder overwrite each other's results; the lock stays held
+    # until main() returns and drops it
+    try:
+        lock = lock_workdir(workdir)
+        held = lock is None
+    except OSError as exc:
+        lock, held = None, False
+        print("[fragskills] warning: cannot lock %s (%s); checking only for running FragPipe "
+              "processes" % (workdir, exc), file=sys.stderr)
+    if held:
+        print("[fragskills] ERROR: another fragpipe_run.py is already running in %s (it holds "
+              "%s). Wait for it to finish, stop it with fragpipe_stop.py, or choose another "
+              "--workdir." % (workdir, LOCK_NAME), file=sys.stderr)
+        return EXIT_CONFIG_ERROR
     status_path = args.status or os.path.join(workdir, STATUS_NAME)
+    busy, tools = runs_in(workdir, status_path)
+    if busy:
+        print("[fragskills] ERROR: FragPipe is already running in %s (PID %s). Wait for it "
+              "to finish, stop it with fragpipe_stop.py, or choose another --workdir."
+              % (workdir, ", ".join(str(r["pid"]) for r in busy)), file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+    if tools:
+        print("[fragskills] ERROR: tools the last FragPipe run in %s started are still running "
+              "(PID %s), and may still be writing there. Stop them with fragpipe_stop.py "
+              "--workdir %s --yes once the user confirms, or choose another --workdir."
+              % (workdir, ", ".join(str(p["pid"]) for p in tools), workdir), file=sys.stderr)
+        return EXIT_CONFIG_ERROR
     console_log = os.path.join(workdir, CONSOLE_LOG_NAME)
+    stop_path = os.path.join(workdir, STOP_NAME)     # fragpipe_stop.py writes it
+    try:
+        os.remove(stop_path)                         # left by an earlier run
+    except OSError:
+        pass
 
     prog = RunProgress()
     status = StatusWriter(status_path)
@@ -323,6 +398,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "elapsed_sec": round(time.time() - started_at, 1),
             "console_log": console_log,
             "status_file": status_path,
+            "watcher_pid": os.getpid(),
+            "host": socket.gethostname(),
             "summary": prog.describe(),
         }
         base.update(prog.snapshot())
@@ -350,7 +427,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         status.write(payload(), force=True)
         print("[fragskills] ERROR: %s" % prog.error, file=sys.stderr)
         return EXIT_CONFIG_ERROR
+    run = {"pid": proc.pid}
+    status.write(payload(run), force=True)    # fragpipe_stop.py needs it
 
+    # Windows: FragPipe's own processes, so the tools its JVM starts can be found
+    # if that JVM is ended alone (elsewhere the process group ties them together)
+    anchors: dict = {}
+    look_at = 0.0
     interrupted = False
     try:
         with open(console_log, "w", encoding="utf-8", errors="replace") as logfh:
@@ -359,12 +442,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if not args.quiet:
                     sys.stdout.write(line)
                     sys.stdout.flush()
+                if WINDOWS and len(anchors) < 2 and time.time() >= look_at:
+                    look_at = time.time() + 10      # the JVM is what prints
+                    try:
+                        anchors = fragpipe_pids(list_processes(), proc.pid)
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        pass
+                    if len(anchors) > 1:
+                        run["fragpipe_pids"] = sorted(anchors)
+                        status.write(payload(run), force=True)
                 event = prog.feed(line)
                 if event:
                     _report(event, prog, quiet=args.quiet)
-                    status.write(payload({"pid": proc.pid}), force=True)
+                    status.write(payload(run), force=True)
                 else:
-                    status.write(payload({"pid": proc.pid}))
+                    status.write(payload(run))
                 logfh.flush()
     except KeyboardInterrupt:
         interrupted = True
@@ -378,8 +470,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             kill_tree(proc)
 
     child_rc = proc.returncode
+    stopped = os.path.isfile(stop_path) and prog.state != STATE_SUCCEEDED
+    try:
+        os.remove(stop_path)
+    except OSError:
+        pass
+    left: List[dict] = []
+    if not (stopped or interrupted or prog.state == STATE_SUCCEEDED):
+        try:            # FragPipe was ended alone (Task Manager, the OOM killer)?
+            left = tools_left(list_processes(), proc.pid, anchors)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
 
-    if interrupted:
+    if stopped:
+        prog.state = STATE_FAILED
+        prog.error = STOPPED_ERROR
+    elif interrupted:
         prog.state = STATE_FAILED
         prog.error = "run was interrupted by the user"
     elif prog.state == STATE_SUCCEEDED:
@@ -395,13 +501,30 @@ def main(argv: Optional[List[str]] = None) -> int:
                       "Check the tail of %s for the cause."
                       % (child_rc, console_log))
 
-    extra = {"pid": proc.pid, "child_exit_code": child_rc}
+    if left:
+        them = "it" if len(left) == 1 else "them"
+        prog.error = ("%s; %d tool%s it started %s still running (PID %s): show %s with "
+                      "fragpipe_stop.py --workdir %s, and stop %s with --yes once the user "
+                      "confirms"
+                      % (prog.error, len(left), "" if len(left) == 1 else "s",
+                         "is" if len(left) == 1 else "are",
+                         ", ".join(str(p["pid"]) for p in left), them, workdir, them))
+    extra = dict(run, child_exit_code=child_rc)
+    if left:
+        extra["tools_left"] = left
+    if stopped:
+        extra["stopped"] = True
     if prog.state == STATE_SUCCEEDED and not args.dry_run:
         extra["outputs"] = collect_outputs(workdir)
     status.write(payload(extra), force=True)
+    own = os.path.join(workdir, STATUS_NAME)
+    if left and os.path.normcase(os.path.abspath(status_path)) != os.path.normcase(own):
+        StatusWriter(own).write(payload(extra), force=True)     # where fragpipe_stop.py looks
 
     print("\n[fragskills] %s" % prog.describe(), flush=True)
     print("[fragskills] status: %s" % status_path, flush=True)
+    if stopped:
+        return 1
     if prog.state == STATE_FAILED:
         print("[fragskills] last lines of output:", file=sys.stderr)
         for line in prog.recent[-15:]:

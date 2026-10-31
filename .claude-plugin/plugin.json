@@ -13,6 +13,7 @@
     "new": {"source": "./commands/fragskills-new.md"},
     "run": {"source": "./commands/fragskills-run.md"},
     "status": {"source": "./commands/fragskills-status.md"},
-    "report": {"source": "./commands/fragskills-report.md"}
+    "report": {"source": "./commands/fragskills-report.md"},
+    "stop": {"source": "./commands/fragskills-stop.md"}
   }
 }
