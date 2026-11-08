@@ -170,11 +170,17 @@ Constraints FragPipe enforces:
 - A folder added as input is walked the way FragPipe does it: a `.d` run is one input, MSFragger's
   `_calibrated`/`_uncalibrated` copies are skipped, linked folders are followed. `.mzBIN` files
   (24.1 only) are not collected by `make_manifest.py`; list them in a design sheet.
-- diaTracer writes `<run>_diatracer.mzML` beside each `.d`. List the `.d` (data type `DIA`), not
-  that file: 24.1-build61 and 25.0 refuse it in a manifest and skip it when a folder is added, and
-  24.1 stops on a DIA input that is not a `.d` when diaTracer runs. 24.0 and 24.1 up to build60
-  load it, and their diaPASEF workflow notes reuse it typed DDA beside the `.d` typed DIA-Quant.
-  `make_manifest.py` skips it on a walk.
+- From 25.0, diaTracer runs whenever a `.d` is typed `DIA`, `GPF-DIA` or `DIA-Lib`, whatever the
+  workflow says, and a DIA input that is not a `.d` listed with it stops the run. The "Run
+  diaTracer for timsTOF data" checkbox and the `diatracer.run-diatracer` key are gone; an old
+  workflow's line is ignored. Earlier versions follow the workflow's `diatracer.run-diatracer`,
+  which the diaPASEF workflows set to `true`.
+- diaTracer writes `<run>_diatracer.mzML` beside each `.d`, and 24.1-build61 and 25.0 reuse that
+  file on a later run instead of running diaTracer again (24.1 even when diaTracer is off). List the
+  `.d` (data type `DIA`), not that file: 24.1-build61 and 25.0 refuse it in a manifest and skip it
+  when a folder is added, and 24.1 stops on a DIA input that is not a `.d` when diaTracer runs. 24.0
+  and 24.1 up to build60 load it, and their diaPASEF workflow notes reuse it typed DDA beside the
+  `.d` typed DIA-Quant. `make_manifest.py` skips it on a walk.
 - DIA-Umpire writes `<run>_Q1`, `_Q2` and `_Q3` (`.mzML` and `.mgf`) beside its input before
   moving them into the workdir, and FragPipe loads leftover copies like any run. `make_manifest.py`
   skips them on a walk when their run is in the same folder; `fragpipe_run.py` refuses one listed
