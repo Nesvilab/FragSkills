@@ -8,7 +8,7 @@ FragSkills is a Claude Code plugin that runs [FragPipe](https://fragpipe.nesvila
 from raw files to results, and reads the output. From a few questions about the experiment, it
 picks the workflow, launches FragPipe, tracks the run, and points at the files to use.
 
-Three things make headless FragPipe easy to get wrong: there are 77 shipped workflows to choose
+Three things make headless FragPipe easy to get wrong: there are more than 70 shipped workflows to choose
 from, FragPipe exits 0 whether the run succeeded or failed, and each run type writes files that
 look like the result but are not (in a DIA run, the root `protein.tsv` describes the spectral
 library, not the quantification). FragSkills handles each of them before, during, and after the
@@ -158,8 +158,8 @@ out the version makes every commit an update).
   TMT with phospho enrichment.
 - QC report counts match FragSummarizer 1.0.2; `references/plots.md` lists the deliberate
   differences.
-- The builder rebuilds all 77 shipped workflows key for key on 24.1-build61 and on FragPipe
-  develop (25.0-build3).
+- The builder rebuilds all 77 shipped workflows key for key on 24.1-build61, and all 73 on FragPipe
+  develop (25.0), where the DIA workflows are renamed to `*-EmpLib`.
 - Not yet covered: workflows beyond the shipped ones, glyco and open-search summaries, and DIA-NN
   `.speclib`/`.parquet` outputs (listed, not read).
 

@@ -556,7 +556,8 @@ def evaluate(tree: dict, install: dict, plan: dict, workdir: str) -> dict:
     result["supported_as"] = supported
 
     answers = plan.get("answers", {})
-    res = wt.resolve(tree, {k: v for k, v in answers.items() if k in tree["_questions"]})
+    res = wt.resolve(wt.for_version(tree, supported),
+                     {k: v for k, v in answers.items() if k in tree["_questions"]})
     result["rejected"] = res.rejected
     result["resolved"] = [{"id": q, "value": v, "label": wt.describe(tree, q, v),
                            "source": res.sources[q]} for q, v in res.settled.items()]

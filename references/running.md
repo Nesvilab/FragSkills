@@ -171,7 +171,8 @@ Constraints FragPipe enforces:
   `_calibrated`/`_uncalibrated` copies are skipped, linked folders are followed. `.mzBIN` files
   (24.1 only) are not collected by `make_manifest.py`; list them in a design sheet.
 - From 25.0, diaTracer runs whenever a `.d` is typed `DIA`, `GPF-DIA` or `DIA-Lib`, whatever the
-  workflow says, and a DIA input that is not a `.d` listed with it stops the run. The "Run
+  workflow says, and a DIA input that is not a `.d` listed with it stops the run unless DIA-Umpire
+  is on and converts that input first. The "Run
   diaTracer for timsTOF data" checkbox and the `diatracer.run-diatracer` key are gone; an old
   workflow's line is ignored. Earlier versions follow the workflow's `diatracer.run-diatracer`,
   which the diaPASEF workflows set to `true`.
@@ -184,7 +185,8 @@ Constraints FragPipe enforces:
 - DIA-Umpire writes `<run>_Q1`, `_Q2` and `_Q3` (`.mzML` and `.mgf`) beside its input before
   moving them into the workdir, and FragPipe loads leftover copies like any run. `make_manifest.py`
   skips them on a walk when their run is in the same folder; `fragpipe_run.py` refuses one listed
-  with its run or typed DIA.
+  with its run or typed DIA. From 25.0, DIA-Umpire leaves `.d` runs to diaTracer, so
+  `Nonspecific-HLA_DIA-EmpLib` (DIA-Umpire on) takes Thermo, Sciex and diaPASEF DIA runs.
 - Two inputs in one folder that differ only in extension (`ctrl_1.raw` and `ctrl_1.mzML`, or a
   `_Q1.mgf` and `_Q1.mzML`) pass FragPipe's name check, but MSFragger writes one `.pepXML` for
   both, so one search overwrites the other. The builder and `fragpipe_run.py` refuse them; keep
@@ -226,7 +228,7 @@ Keys worth knowing:
 
 ## Choosing a built-in workflow
 
-`<FragPipe>/workflows/` ships 77 of them in 24.1-build61 and 25.0. `scripts/build_workflow.py` picks one
+`<FragPipe>/workflows/` ships 77 of them in 24.1-build61 and 73 in 25.0. `scripts/build_workflow.py` picks one
 from a few questions about the data and changes only the run-level settings (FASTA, contaminant
 removal, TMT channel count); SKILL.md "New analysis: build the workflow" walks through it. Pick by
 hand when the user names a workflow or brings their own. Common starting points:
@@ -239,8 +241,8 @@ hand when the user names a workflow or brings their own. Common starting points:
 | TMT | `TMT10`, `TMT16`, `TMT18-Astral`, `TMT10-MS3`, `TMT10-phospho` |
 | iTRAQ | `iTRAQ4` |
 | SILAC | `SILAC3` |
-| DIA (library-free → DIA-NN quant) | `DIA_SpecLib_Quant`, `..._diaPASEF` |
-| DIA-Umpire pseudo-DDA | `DIA_DIA-Umpire_SpecLib_Quant` |
+| DIA (empirical library → DIA-NN quant) | `DIA-EmpLib`, also for diaPASEF (24.1: `DIA_SpecLib_Quant`, `..._diaPASEF`) |
+| DIA-Umpire pseudo-DDA | `DIA_DIA-Umpire_SpecLib_Quant` (24.1 only) |
 | Open / PTM discovery | `Open`, `Open-quickscan`, `Mass-Offset-CommonPTMs` |
 | Glyco | `glyco-N-HCD`, `glyco-O-Pair`, … |
 | Immunopeptidomics | `Nonspecific-HLA*` |

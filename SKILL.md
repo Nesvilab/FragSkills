@@ -176,7 +176,8 @@ python scripts/fragpipe_run.py \
 ```
 
 By hand, pick a workflow by matching the user's experiment: `LFQ-MBR` for label-free DDA, `TMT10`/`TMT16`
-for isobaric, `DIA_SpecLib_Quant` for DIA, `Open` for open/PTM discovery, `Basic-Search` for plain
+for isobaric, `DIA-EmpLib` for DIA and diaPASEF (in 24.1, `DIA_SpecLib_Quant` and
+`DIA_SpecLib_Quant_diaPASEF`), `Open` for open/PTM discovery, `Basic-Search` for plain
 identification. Confirm the choice with the user when it is not obvious — a wrong workflow wastes
 hours. `--dry-run` makes FragPipe print its plan and stop; use it to validate configuration cheaply.
 

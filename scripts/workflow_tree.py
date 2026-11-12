@@ -3,11 +3,15 @@
 ``workflow_tree.json`` lists the questions and, for every workflow FragPipe
 ships, the answers that select it -- a *route*.  This module walks it::
 
-    tree = load_tree()
+    tree = for_version(load_tree(), "24.1")
     res = resolve(tree, {"analysis": "standard", "acquisition": "DDA"})
     res.open        # questions to ask now, each with the answers still possible
     res.rejected    # answers no shipped workflow accepts, with the nearest one
     res.route       # the route, once nothing is open
+
+A route or answer that lists ``versions`` exists only in those FragPipe
+versions (24.1 ships ``DIA_SpecLib_Quant`` and ``DIA_SpecLib_Quant_diaPASEF``,
+25.0 ships ``DIA-EmpLib`` for both), so the tree is walked for one version.
 
 Questions are visited in file order.  One is *active* when every question
 named in its ``when`` is settled to one of the listed values.  An active
@@ -61,6 +65,19 @@ def supported_version(tree: dict, version: Optional[str]) -> Optional[str]:
 def rename_key(tree: dict, version: str, key: str) -> str:
     """Translate a 24.1 key name into the name *version* uses."""
     return tree["versions"][version]["renames"].get(key, key)
+
+
+def for_version(tree: dict, version: str) -> dict:
+    """*tree* as FragPipe *version* ('24.1', '25.0') ships it: only the routes and
+    answers that list no ``versions``, or list this one."""
+    def ships(item: dict) -> bool:
+        return version in item.get("versions", [version])
+
+    view = dict(tree, routes=[r for r in tree["routes"] if ships(r)])
+    view["questions"] = [dict(q, answers=[a for a in q["answers"] if ships(a)])
+                         for q in tree["questions"]]
+    view["_questions"] = {q["id"]: q for q in view["questions"]}
+    return view
 
 
 # --- routes -------------------------------------------------------------------

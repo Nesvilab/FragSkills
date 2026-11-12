@@ -862,32 +862,41 @@ def test_workflow_tree() -> None:
                     bad_values.append("%s:%s=%s" % (r["workflow"], q, v))
         if r["data"] not in tree["data_type_sets"]:
             bad_values.append("%s: data set %s" % (r["workflow"], r["data"]))
-    check("routes use only known questions, answers and data sets", not bad_values,
+    for item in tree["routes"] + [a for q in tree["questions"] for a in q["answers"]]:
+        if set(item.get("versions", [])) - set(tree["versions"]):
+            bad_values.append("%s: versions %s" % (item.get("workflow") or item["value"],
+                                                   item["versions"]))
+    check("routes use only known questions, answers, data sets and versions", not bad_values,
           ", ".join(bad_values[:5]))
 
     wrong = []
-    for r in tree["routes"]:
-        keys = list(r["answers"])
-        lists = [v if isinstance(v, list) else [v] for v in r["answers"].values()]
-        for combo in itertools.product(*lists):
-            try:
-                res = wt.resolve(tree, dict(zip(keys, combo)))
-            except ValueError as exc:
-                wrong.append(str(exc))
-                continue
-            if res.open or res.rejected or res.route is not r:
-                wrong.append("%s %s" % (r["workflow"], dict(zip(keys, combo))))
-            loose = [q for q in res.settled if q not in r["answers"]]
-            if loose:
-                wrong.append("%s leaves %s unconstrained" % (r["workflow"], loose))
-    check("every route's answers select exactly that route", not wrong, "; ".join(wrong[:3]))
+    for version in tree["versions"]:
+        view = wt.for_version(tree, version)
+        for r in view["routes"]:
+            keys = list(r["answers"])
+            lists = [v if isinstance(v, list) else [v] for v in r["answers"].values()]
+            for combo in itertools.product(*lists):
+                try:
+                    res = wt.resolve(view, dict(zip(keys, combo)))
+                except ValueError as exc:
+                    wrong.append("%s: %s" % (version, exc))
+                    continue
+                if res.open or res.rejected or res.route is not r:
+                    wrong.append("%s: %s %s" % (version, r["workflow"], dict(zip(keys, combo))))
+                loose = [q for q in res.settled if q not in r["answers"]]
+                if loose:
+                    wrong.append("%s: %s leaves %s unconstrained" % (version, r["workflow"],
+                                                                     loose))
+    check("every route's answers select exactly that route, in each FragPipe version",
+          not wrong, "; ".join(wrong[:3]))
 
+    full, tree = tree, wt.for_version(tree, "25.0")
     res = wt.resolve(tree, {"analysis": "standard", "acquisition": "DIA", "search": "open"})
     check("an unshipped combination is rejected", [r["id"] for r in res.rejected] == ["search"],
           str(res.rejected))
     check("the nearest shipped workflow keeps the acquisition (DIA, not the DDA 'Open')",
           res.rejected and (res.rejected[0]["nearest"] or {}).get("workflow")
-          == "DIA_SpecLib_Quant", str(res.rejected))
+          == "DIA-EmpLib", str(res.rejected))
     near = wt.nearest(tree, {"analysis": "glyco", "acquisition": "DDA+"}, "acquisition")
     check("... and the kind of analysis (glyco with DDA+ suggests a glyco workflow)",
           near["workflow"].startswith("glyco"), str(near))
@@ -950,8 +959,26 @@ def test_workflow_tree() -> None:
                             "quant": "LFQ", "ptm": "none"})
     check("a single possible answer is implied, not asked",
           res.sources.get("dia_library") == wt.SOURCE_IMPLIED
-          and res.route and res.route["workflow"] == "DIA_SpecLib_Quant",
+          and res.route and res.route["workflow"] == "DIA-EmpLib",
           str(res.sources))
+    picks = []
+    for version in ("24.1", "25.0"):
+        for fmt in ("thermo_sciex", "diapasef"):
+            route = wt.resolve(wt.for_version(full, version), {
+                "analysis": "standard", "acquisition": "DIA", "dia_format": fmt,
+                "search": "closed", "quant": "LFQ", "ptm": "none"}).route
+            picks.append(route and route["workflow"])
+    check("24.1 picks its diaPASEF workflow for diaPASEF; 25.0, which runs diaTracer on "
+          "every .d typed DIA, picks DIA-EmpLib for both",
+          picks == ["DIA_SpecLib_Quant", "DIA_SpecLib_Quant_diaPASEF", "DIA-EmpLib",
+                    "DIA-EmpLib"], str(picks))
+    offered = {v: {a["value"] for a in wt.for_version(full, v)["_questions"]["specialised"]
+                   ["answers"]} for v in ("24.1", "25.0")}
+    check("each version offers only the specialised workflows it ships",
+          {"DIA_DIA-Umpire_SpecLib_Quant", "chemprot-ABPP-IADTB-diaPASEF"}
+          == offered["24.1"] - offered["25.0"]
+          and {"chemprot-ABPP-IADTB_DIA-EmpLib"} == offered["25.0"] - offered["24.1"],
+          str(offered))
     check("24.1 and 25.0 are supported, 24.0 is not",
           wt.supported_version(tree, "24.1-build61") == "24.1"
           and wt.supported_version(tree, "25.0-build3") == "25.0"
@@ -3156,7 +3183,8 @@ def test_rebuild_shipped(workflows_dir: str, version: str) -> None:
     tree = wt.load_tree()
     names = sorted(f[:-len(".workflow")] for f in os.listdir(workflows_dir)
                    if f.endswith(".workflow"))
-    routes = {r["workflow"]: r for r in tree["routes"]}
+    routes = {r["workflow"]: r for r in
+              wt.for_version(tree, wt.supported_version(tree, version))["routes"]}
     check("every shipped workflow has a route", not set(names) - set(routes),
           "no route: %s" % sorted(set(names) - set(routes)))
     if set(routes) - set(names):
