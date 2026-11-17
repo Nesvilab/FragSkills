@@ -187,7 +187,7 @@
       "text": "How should TMT and the GG remnant share lysines?",
       "when": {"quant": ["TMT"], "ptm": ["ubiquitin"]},
       "answers": [
-        {"value": "tmt_or_ubiq", "label": "A lysine carries either TMT or GG, not both (PTMProphet localization)"},
+        {"value": "tmt_or_ubiq", "label": "A lysine carries either TMT or GG, not both (PTMProphet-rs localization; PTMProphet in FragPipe 24.1)"},
         {"value": "tmt_plus_ubiq", "label": "GG lysines are also TMT-labelled (+343 or +418 combined)"},
         {"value": "both", "label": "Allow both cases (TMT10 only; localization from MSFragger)"}
       ]
@@ -197,8 +197,8 @@
       "text": "How should acetylation sites be localized?",
       "when": {"quant": ["TMT"], "ptm": ["acetyl"]},
       "answers": [
-        {"value": "ptmprophet", "label": "PTMProphet"},
-        {"value": "msfragger", "label": "MSFragger's own assignment (no PTMProphet)"}
+        {"value": "ptmprophet-rs", "label": "PTMProphet-rs (PTMProphet in FragPipe 24.1)"},
+        {"value": "msfragger", "label": "MSFragger's own assignment (no PTMProphet-rs or PTMProphet)"}
       ]
     },
     {
@@ -303,7 +303,7 @@
     {"workflow": "TMT10-ubiquitin", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "both"}},
     {"workflow": "TMT10-ubiquitination-K_tmt_or_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_or_ubiq"}},
     {"workflow": "TMT10-ubiquitination-K_tmt_plus_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_plus_ubiq"}},
-    {"workflow": "TMT10-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet"}},
+    {"workflow": "TMT10-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet-rs"}},
     {"workflow": "TMT10-acetyl-noloc", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["6", "10", "11"], "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "msfragger"}},
 
     {"workflow": "TMT16", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
@@ -311,7 +311,7 @@
     {"workflow": "TMT16-phospho", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "phospho"}},
     {"workflow": "TMT16-ubiquitination-K_tmt_or_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_or_ubiq"}},
     {"workflow": "TMT16-ubiquitination-K_tmt_plus_ubiq", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "ubiquitin", "ubiq_tmt_lysine": "tmt_plus_ubiq"}},
-    {"workflow": "TMT16-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet"}},
+    {"workflow": "TMT16-acetyl", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "ptmprophet-rs"}},
     {"workflow": "TMT16-acetyl-noloc", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": ["16", "18"], "tmt_astral": "no", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "acetyl", "acetyl_localization": "msfragger"}},
     {"workflow": "TMT18-Astral", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": "18", "tmt_astral": "yes", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
     {"workflow": "TMT35", "data": "dda", "answers": {"analysis": "standard", "acquisition": "DDA", "search": "closed", "quant": "TMT", "tmt_plex": "35", "tmt_ms_level": "MS2", "tmt_reference": "virtual", "ptm": "none"}},
