@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fragpipe_progress import (  # noqa: E402
     RunProgress, parse_log, STATE_FAILED, STATE_RUNNING, STATE_SUCCEEDED,
 )
+import fragpipe_status  # noqa: E402
 import parse_reports  # noqa: E402
 import quant_matrix as qm  # noqa: E402
 import run_type  # noqa: E402
@@ -140,6 +141,27 @@ def test_outputs(workdir: str) -> None:
     check("protein.tsv located",
           any("protein.tsv" in f for f in inv["report_files"]))
     check("log located", len(inv["logs"]) > 0)
+    site = inv["combined_site_files"].get(parse_reports.COMBINED_SITE_FILE)
+    if site:
+        mods = inv["site_modifications"]
+        print("        -> combined_site.tsv: %s"
+              % ", ".join("%s %d" % mn for mn in mods.items()))
+        check("combined_site.tsv names a site:mass modification on every row",
+              sum(mods.values()) == parse_reports.count_rows(site)
+              and all(":" in m for m in mods), str(mods))
+        keys = [(r.get("Index"), r.get("Modification"))
+                for r in parse_reports.iter_rows(site)]
+        check("(Index, Modification) identifies each combined_site.tsv row",
+              len(set(keys)) == len(keys),
+              "%d duplicates" % (len(keys) - len(set(keys))))
+        cls = inv["classification"]
+        if cls["run_type"] == run_type.RUN_DDA_GROUPED:
+            entry = [f for f in cls["main_files"]
+                     if f["name"] == parse_reports.COMBINED_SITE_FILE]
+            check("the combined_site.tsv result names each modification",
+                  bool(entry) and all(run_type._site_label(m)
+                                      in entry[0]["note"] for m in mods),
+                  entry[0]["note"] if entry else "not offered")
 
     print("\n[5] report summaries")
     for exp, files in inv["experiments"].items():
@@ -322,20 +344,90 @@ def test_classification_precedence() -> None:
         check("ungrouped DDA leads with protein.tsv",
               cls["main_files"][0]["name"] == "protein.tsv")
 
-        # combined_site_*.tsv must be discovered, not silently skipped.
+        # combined_site.tsv must be discovered, not silently skipped. It holds
+        # every modification, named per row in its Modification column; one
+        # Index can carry two of them (K acetyl and K GG).
+        _write_tsv(os.path.join(tmp, "dda", "combined_site.tsv"),
+                   ["Index", "Modification", "Best Localization Probability",
+                    "expA Localization Probability", "expA Intensity"],
+                   [["P1_C12", "C:57.0215", "1.0", "1.0", "5.0"],
+                    ["P1_K7", "K:114.0429", "0.9", "0.9", "4.0"],
+                    ["P1_K7", "K:42.0106", "0.8", "0.8", "3.0"],
+                    ["P1_M3", "M:15.9949", "1.0", "1.0", "2.0"],
+                    ["P2_M8", "M:15.9949", "0.7", "0.7", "1.0"]])
+        # Old per-modification files and GlycoReporter's table are not it.
         _write_tsv(os.path.join(tmp, "dda", "combined_site_M_15.9949.tsv"),
-                   ["Index", "Best Localization Probability",
-                    "expA Localization Probability", "expA Intensity"])
+                   ["Index", "Best Localization Probability"])
+        _write_tsv(os.path.join(tmp, "dda", "combined_glycosite.tsv"),
+                   ["Index", "Best Localization Probability"])
         inv = parse_reports.discover(os.path.join(tmp, "dda"))
-        check("combined_site_*.tsv is discovered",
-              "combined_site_M_15.9949.tsv" in inv["combined_site_files"])
-        check("combined_site_*.tsv is offered as a result",
-              any(f["name"].startswith("combined_site_")
-                  for f in inv["classification"]["main_files"]))
+        check("only combined_site.tsv is discovered as the site table",
+              list(inv["combined_site_files"]) == ["combined_site.tsv"],
+              str(list(inv["combined_site_files"])))
+        mods = {"C:57.0215": 1, "K:114.0429": 1, "K:42.0106": 1,
+                "M:15.9949": 2}
+        check("sites are counted per Modification value, in file order",
+              list(inv["site_modifications"].items()) == list(mods.items()),
+              str(inv["site_modifications"]))
+        entry = [f for f in inv["classification"]["main_files"]
+                 if f["name"] == "combined_site.tsv"]
+        check("combined_site.tsv is offered as a result", len(entry) == 1)
+        check("the result names each modification",
+              bool(entry) and "(C +57.0215, K +114.0429, K +42.0106, "
+              "M +15.9949)" in entry[0]["note"],
+              entry[0]["note"] if entry else "")
+        check("the inventory lists every modification",
+              all(m in parse_reports.render_inventory(inv) for m in mods))
         site = parse_reports.summarize(
-            inv["combined_site_files"]["combined_site_M_15.9949.tsv"])
+            inv["combined_site_files"]["combined_site.tsv"])
         check("'Best' is not counted as a sample",
               site["samples"] == ["expA"], str(site["samples"]))
+        check("'Modification' is not read as a quant measure",
+              site["quant_measures"]
+              == ["Intensity", "Localization Probability"],
+              str(site["quant_measures"]))
+        check("the summary counts sites per modification",
+              site.get("sites_per_modification") == mods,
+              str(site.get("sites_per_modification")))
+        # The status file holds the inventory as JSON; the order must survive.
+        status = fragpipe_status.render(
+            {"state": "succeeded", "outputs": json.loads(json.dumps(inv))},
+            False)
+        check("the status lists every modification with its sites",
+              "C:57.0215 (1 site), K:114.0429 (1 site), K:42.0106 (1 site), "
+              "M:15.9949 (2 sites)" in status, status)
+
+        # A header-only combined_site.tsv (FragDIA, no tag with a row) is
+        # listed as having no sites rather than silently.
+        wd = os.path.join(tmp, "dda_nosites")
+        _write_tsv(os.path.join(wd, "combined_protein.tsv"),
+                   ["Protein", "expA Intensity"])
+        _write_tsv(os.path.join(wd, "combined_site.tsv"),
+                   ["Index", "Modification", "Best Localization Probability"])
+        inv = parse_reports.discover(wd)
+        check("a header-only combined_site.tsv is listed with no sites",
+              inv["site_modifications"] == {}
+              and "(no sites)" in parse_reports.render_inventory(inv))
+
+        # Only the old per-modification files: no fallback to them, and
+        # GlycoReporter's combined_glycosite.tsv is not a site table either.
+        wd = os.path.join(tmp, "dda_old")
+        _write_tsv(os.path.join(wd, "combined_protein.tsv"),
+                   ["Protein", "expA Intensity"])
+        _write_tsv(os.path.join(wd, "combined_site_M_15.9949.tsv"),
+                   ["Index", "Best Localization Probability"],
+                   [["P1_M3", "1.0"]])
+        _write_tsv(os.path.join(wd, "combined_glycosite.tsv"),
+                   ["Index", "Best Localization Probability"],
+                   [["P1_N5", "1.0"]])
+        inv = parse_reports.discover(wd)
+        check("old combined_site_*.tsv files alone are not read",
+              inv["combined_site_files"] == {}
+              and inv["site_modifications"] == {}
+              and not any(f["name"].startswith("combined_site")
+                          or f["name"] == "combined_glycosite.tsv"
+                          for f in inv["classification"]["main_files"]),
+              str(inv["combined_site_files"]))
 
         # Nothing at all.
         empty = os.path.join(tmp, "empty")

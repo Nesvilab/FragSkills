@@ -191,10 +191,11 @@ def classify(inv: dict) -> dict:
     elif combined or site:
         run_type = RUN_DDA_GROUPED
         main = _ordered(combined, _COMBINED_ORDER, _COMBINED_NOTES)
+        mods = [_site_label(m) for m in inv.get("site_modifications") or {}]
         for name in sorted(site):
             main.append(_entry(site[name],
-                               "per-site localisation and intensity (%s)"
-                               % _site_label(name)))
+                               "per-site localisation and intensity%s"
+                               % (" (%s)" % ", ".join(mods) if mods else "")))
         main_dir = inv.get("workdir")
         reason = ("%d experiments with combined_*.tsv cross-experiment matrices"
                   % n_exp)
@@ -244,14 +245,16 @@ def classify(inv: dict) -> dict:
     }
 
 
-def _site_label(name: str) -> str:
-    """``combined_site_M_15.9949.tsv`` -> ``M +15.9949``."""
-    stem = name[len("combined_site_"):-len(".tsv")] if name.startswith(
-        "combined_site_") else name
-    parts = stem.split("_", 1)
-    if len(parts) == 2:
-        return "%s +%s" % (parts[0], parts[1])
-    return stem
+def _site_label(mod: str) -> str:
+    """``M:15.9949`` (combined_site.tsv's ``Modification``) -> ``M +15.9949``.
+
+    The mass is what follows the last ``:``, the residues what precedes it.
+    """
+    residues, sep, mass = mod.rpartition(":")
+    if not sep:
+        return mod
+    return "%s %s%s" % (residues, "" if mass.startswith(("+", "-")) else "+",
+                        mass)
 
 
 # --------------------------------------------------------------------------

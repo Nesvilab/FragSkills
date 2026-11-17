@@ -27,7 +27,6 @@ Output layout FragPipe uses (see references/outputs.md):
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import sys
@@ -43,9 +42,13 @@ REPORT_FILES = ("psm.tsv", "peptide.tsv", "modified_peptide.tsv", "ion.tsv",
 #: Multi-experiment summaries, always written to the workdir root.
 COMBINED_FILES = ("combined_peptide.tsv", "combined_modified_peptide.tsv",
                   "combined_ion.tsv", "combined_protein.tsv")
-#: Site-level matrices IonQuant writes one per localised modification, named
-#: after the residue and delta mass: ``combined_site_M_15.9949.tsv``.
-COMBINED_SITE_GLOB = "combined_site_*.tsv"
+#: Site-level matrix IonQuant writes for every localised modification at once.
+#: Matched by exact name: GlycoReporter's ``combined_glycosite.tsv`` is not it.
+COMBINED_SITE_FILE = "combined_site.tsv"
+#: Its second column, naming each row's modification as ``<residues>:<mass>``
+#: (``M:15.9949``).  ``Index`` alone is not unique there; (``Index``,
+#: ``Modification``) is the row key.
+SITE_MOD_COLUMN = "Modification"
 #: Sub-directories holding quantification output for specific workflows.
 TMT_DIR = "tmt-report"
 DIA_QUANT_DIR = "dia-quant-output"
@@ -102,6 +105,26 @@ def count_rows(path: str) -> int:
     return n
 
 
+def site_modifications(path: str) -> Dict[str, int]:
+    """Sites per modification in a ``combined_site.tsv``, in file order.
+
+    Each row is one (``Index``, ``Modification``) site, so a modification's row
+    count is its site count.  ``{}`` when the file has no ``Modification``.
+    """
+    counts: Dict[str, int] = {}
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        header = fh.readline().rstrip("\r\n").split("\t")
+        if SITE_MOD_COLUMN not in header:
+            return counts
+        col = header.index(SITE_MOD_COLUMN)
+        for line in fh:
+            parts = line.rstrip("\r\n").split("\t", col + 1)
+            mod = parts[col].strip() if len(parts) > col else ""
+            if mod:
+                counts[mod] = counts.get(mod, 0) + 1
+    return counts
+
+
 def _is_true(value: str) -> bool:
     return (value or "").strip().lower() in _TRUE
 
@@ -125,6 +148,7 @@ def discover(workdir: str) -> dict:
         "report_files": {},
         "combined_files": {},
         "combined_site_files": {},
+        "site_modifications": {},
         "tmt_report": {},
         "dia_quant": {},
         "aux_files": {},
@@ -162,8 +186,10 @@ def discover(workdir: str) -> dict:
         if os.path.isfile(p):
             inv["combined_files"][name] = p
 
-    for p in sorted(glob.glob(os.path.join(workdir, COMBINED_SITE_GLOB))):
-        inv["combined_site_files"][os.path.basename(p)] = p
+    p = os.path.join(workdir, COMBINED_SITE_FILE)
+    if os.path.isfile(p):
+        inv["combined_site_files"][COMBINED_SITE_FILE] = p
+        inv["site_modifications"] = site_modifications(p)
 
     tmt_dir = os.path.join(workdir, TMT_DIR)
     if os.path.isdir(tmt_dir):
@@ -216,6 +242,9 @@ def summarize(path: str) -> dict:
         info.update(_summarize_ion(path))
     elif base == "protein.tsv":
         info.update(_summarize_protein(path))
+    elif base == COMBINED_SITE_FILE:
+        info.update(_summarize_combined(path))
+        info["sites_per_modification"] = site_modifications(path)
     elif base.startswith("combined_"):
         info.update(_summarize_combined(path))
     else:
@@ -364,14 +393,14 @@ _QUANT_SUFFIXES = tuple(sorted((
     " Apex Retention Time", " Apex Scan Number", " Retention Time Start",
     " Retention Time End", " Retention Time FWHM", " Traced Scans",
     " Localization",
-    # combined_site_*.tsv
+    # combined_site.tsv
     " Localization Probability",
 ), key=len, reverse=True))
 
 
 #: These look exactly like per-sample columns but hold an across-experiment
 #: aggregate: ``Combined Spectral Count`` is the total, ``Best Localization
-#: Probability`` (combined_site_*.tsv) the maximum. Neither prefix is a sample.
+#: Probability`` (combined_site.tsv) the maximum. Neither prefix is a sample.
 _NOT_A_SAMPLE = frozenset(("Combined", "Best"))
 
 
@@ -457,6 +486,12 @@ def render_inventory(inv: dict) -> str:
             L.append("  %s" % p)
         for n, p in sorted(inv["combined_site_files"].items()):
             L.append("  %s" % p)
+            mods = inv.get("site_modifications") or {}
+            if mods:
+                L.extend(_site_lines(mods, "      "))
+            elif os.path.isfile(p) and count_rows(p) == 0:
+                # Header only: FragDIA writes that when no mod tag has a row.
+                L.append("      (no sites)")
     if inv["tmt_report"]:
         L.append("")
         L.append("TMT report (%d files): %s" % (len(inv["tmt_report"]),
@@ -478,6 +513,15 @@ def render_inventory(inv: dict) -> str:
         L.append("")
         L.append("NOTE: %s" % note)
     return "\n".join(L)
+
+
+def _site_lines(mods: Dict[str, int], indent: str) -> List[str]:
+    """One line per ``Modification`` of combined_site.tsv, with its sites."""
+    if not mods:
+        return []
+    width = max(len(m) for m in mods)
+    return ["%s%-*s %7d site%s" % (indent, width, m, n, "" if n == 1 else "s")
+            for m, n in mods.items()]
 
 
 _HIDE = {"file", "columns", "size_bytes", "spectrum_files", "organisms", "samples"}
@@ -508,6 +552,9 @@ def render_summary(summary: dict) -> str:
             L.append("  sample names: %s" % ", ".join(info["samples"]))
         if info.get("quant_measures"):
             L.append("  measures: %s" % ", ".join(info["quant_measures"]))
+        if info.get("sites_per_modification"):
+            L.append("  sites per modification:")
+            L.extend(_site_lines(info["sites_per_modification"], "    "))
     for section, label in (("tmt_report", "TMT report"),
                            ("dia_quant", "DIA quant output")):
         if summary.get(section):

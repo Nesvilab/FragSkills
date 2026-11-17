@@ -47,7 +47,7 @@ Run `python scripts/parse_reports.py --workdir <dir>` instead of guessing.
 ├── psm.tsv peptide.tsv ion.tsv protein.tsv      # single/collapsed experiment
 ├── <experiment>/psm.tsv ...                     # or one folder per experiment
 ├── combined_peptide.tsv combined_protein.tsv    # multi-experiment matrices
-├── combined_site_<AA>_<mass>.tsv                # one per localized modification
+├── combined_site.tsv                            # localized sites, every modification
 ├── tmt-report/                                  # TMT-Integrator
 ├── dia-quant-output/                            # DIA-NN
 ├── library.tsv irt.tsv                          # spectral library
@@ -178,19 +178,32 @@ Layout is identifier columns followed by per-sample quant columns named
 normalized, ratio-based estimate. Plain `Intensity` is the raw sum. Missing values are `0`; treat
 them as missing, not as measured zero.
 
-## combined_site_&lt;AA&gt;_&lt;mass&gt;.tsv — site-level localization
+## combined_site.tsv — site-level localization
 
-IonQuant writes one per localized modification, named for the residue and delta mass:
-`combined_site_M_15.9949.tsv` (oxidized Met), `combined_site_C_57.0215.tsv` (carbamidomethyl Cys),
-`combined_site_S_79.9663.tsv` (phospho-Ser). Columns:
+IonQuant writes a single file holding every localized modification, at the workdir root. The
+`Modification` column names each row's modification as `<residues>:<mass>`: `M:15.9949`
+(oxidized Met), `C:57.0215` (carbamidomethyl Cys), `STY:79.9663` (phospho). The mass is the part
+after the last `:`, the residues the part before it. Rows are grouped by modification, the groups
+sorted by that string. Columns:
 
-`Index`, `Gene`, `Protein`, `Protein ID`, `Peptide`, `Best Localization Probability`, then per
-sample `<sample> Localization Probability` and `<sample> Intensity`.
+`Index`, `Modification`, `Gene`, `Protein`, `Protein ID`, `Peptide`,
+`Best Localization Probability`, then per sample `<sample> Localization Probability` and
+`<sample> Intensity`.
+
+**A row is identified by (`Index`, `Modification`), not by `Index` alone.** One residue can carry two
+modifications (K acetyl and K ubiquitin), so the same `Index` can appear once per modification.
+Filter on `Modification` before treating `Index` as a key or joining on it, and count sites per
+modification (`parse_reports.py --summary` does).
 
 `Index` is `<Protein ID>_<residue><position>`, e.g. `A0AVT1_M492`. The lowercase letter inside
 `Peptide` marks the modified residue (`GmITVTDPDLIEK`). `Best …` is the maximum across samples, not
 a sample — do not read it as one. Intensity `0.0` means the site was not quantified in that sample.
 A localization probability below ~0.75 means the site assignment is ambiguous within the peptide.
+
+FragDIA writes its own `combined_site.tsv` into `dia-quant-output/` when `fragdia.mod-tag` is set:
+`DIA-EmpLib_Phospho` (`STY:79.96633`), `DIA-EmpLib_Ubiq` (`K:114.04293`) and the chemoproteomics
+DIA workflows. It has the same `Modification` column, taken from the mod tag, and the same row key;
+its masses can carry more decimals than IonQuant's.
 
 ## tmt-report
 

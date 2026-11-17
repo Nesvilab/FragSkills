@@ -294,7 +294,7 @@ rule it applies, most specific first:
 | **TMT + PTM enrichment** (`tmt-report/` has `single-site`/`multi-site`) | `tmt-report/abundance_single-site_*.tsv` and `ratio_single-site_*.tsv`, plus `multi-site` | `combined_*.tsv`; raw channel columns in `psm.tsv` |
 | **TMT** (`tmt-report/` exists) | `tmt-report/abundance_protein_*.tsv` and `ratio_protein_*.tsv` (also gene/peptide) | `combined_*.tsv`; raw channel columns in `psm.tsv` |
 | **DIA** (`dia-quant-output/` exists) | `dia-quant-output/abundance_protein_*.tsv`, plus gene/peptide and DIA-NN's `report.*_matrix.tsv` | root `psm/peptide/ion/protein.tsv` — those are the **spectral library** |
-| **DDA, experiments named** (`combined_*.tsv` exist) | `combined_protein.tsv`, then `combined_peptide.tsv` / `combined_modified_peptide.tsv` / `combined_ion.tsv` / `combined_site_*.tsv` | the per-experiment folders — same data, one sample at a time |
+| **DDA, experiments named** (`combined_*.tsv` exist) | `combined_protein.tsv`, then `combined_peptide.tsv` / `combined_modified_peptide.tsv` / `combined_ion.tsv` / `combined_site.tsv` | the per-experiment folders — same data, one sample at a time |
 | **DDA, single or unnamed experiment** | root `protein.tsv`, `peptide.tsv`, `ion.tsv`, `psm.tsv` | — |
 
 Two conventions decide whether the numbers come out right: **TMT-Integrator writes log2 with `NA`
@@ -312,7 +312,7 @@ The per-experiment reports, all tab-separated with one header row:
 | `ion.tsv` | peptide ion (sequence + mods + charge) | precursor-level quant input |
 | `protein.tsv` | protein group | protein IDs, coverage, per-group quant |
 | `combined_*.tsv` | as above, across experiments | cross-sample comparison and quant matrices |
-| `combined_site_<AA>_<mass>.tsv` | modification site | per-site localization probability and intensity |
+| `combined_site.tsv` | modification site, keyed by `Index` + `Modification` (`M:15.9949`) | per-site localization probability and intensity, every modification in one file |
 
 For column-by-column meaning, the per-experiment vs. root layout rule, and how to filter decoys and
 contaminants, read `references/outputs.md`. For TMT (`tmt-report/`) and DIA-NN

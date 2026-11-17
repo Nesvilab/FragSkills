@@ -111,13 +111,19 @@ def render(snap: dict, verbose: bool) -> str:
     if outputs and not outputs.get("error"):
         found = [(k, outputs[k]) for k in
                  ("experiments", "report_files", "combined_files",
-                  "combined_site_files", "tmt_report", "dia_quant")
+                  "combined_site_files", "site_modifications", "tmt_report",
+                  "dia_quant")
                  if outputs.get(k)]
         if found:
             lines.append("")
             lines.append("Outputs:")
             for key, val in found:
-                lines.append("  %-20s %s" % (key + ":", _brief(val)))
+                # combined_site.tsv is one file: list its modifications.
+                text = (", ".join("%s (%d site%s)"
+                                  % (m, n, "" if n == 1 else "s")
+                                  for m, n in val.items())
+                        if key == "site_modifications" else _brief(val))
+                lines.append("  %-20s %s" % (key + ":", text))
         cls = outputs.get("classification")
         if cls and cls.get("main_files"):
             main = [f for f in cls["main_files"] if f.get("role") == "main"]
