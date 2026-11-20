@@ -54,7 +54,7 @@ Run `python scripts/parse_reports.py --workdir <dir>` instead of guessing.
 ├── *.pepXML *.pin interact-*.pep.xml            # intermediates
 ├── combined.prot.xml protein.fas                # protein inference input/output
 ├── experiment_annotation.tsv                    # file -> sample/condition, as FragPipe saw it
-├── msstats.csv msstats_ptm.csv                  # MSstats input
+├── msstats.csv msstats_ptm.csv                  # MSstats input, only in some runs (below)
 ├── reprint.int.tsv reprint.spc.tsv              # REPRINT/CRAPome input
 ├── fragpipe.workflow fragpipe-files.fp-manifest # exact settings used — keep these
 ├── fragger.params filter.log sdrf.tsv
@@ -64,6 +64,21 @@ Run `python scripts/parse_reports.py --workdir <dir>` instead of guessing.
 `experiment_annotation.tsv` is the quickest way to see how FragPipe interpreted the manifest —
 which file became which sample, and for TMT which plex and channel. When sample names in a quant
 matrix are not what the user expected, that file is the reason.
+
+MSstats input in the workdir root comes from three writers. None of them writes it in every run:
+
+- IonQuant (label-free or MS1-label) writes `msstats.csv` when at least one file has an experiment
+  or replicate, and also writes `msstats_ptm.csv` when PSMs carry site localization. DIA runs never
+  reach this path, because DIA-NN, FragDIA and FragSpecLib put every file in one unnamed group.
+- Philosopher abacus writes `msstats.csv` (no `msstats_ptm.csv`) in runs with two or more
+  experiments, IonQuant off, and a protein or peptide summary on, such as the Open and Mass-Offset
+  workflows. `tmtintegrator.philosopher-msstats` does not control it.
+- For TMT, Philosopher writes `msstats.csv` only with both `tmtintegrator.philosopher-msstats=true`
+  and `tmtintegrator.extraction_tool=Philosopher`. Every built-in TMT workflow uses IonQuant, so
+  setting the first alone stops FragPipe with "Parameter incompatibility". A single named plex
+  puts the file in `<plex>/`.
+
+For DIA, see [dia-quant-output](#dia-quant-output).
 
 ## Reading the reports correctly
 
@@ -274,6 +289,18 @@ The two families agree: on the test data 10,372 of 11,249 protein-level cells ma
 fills ~8% fewer cells and carries a few extra protein rows — so pick one and stay in it. Prefer
 `abundance_protein_*.tsv` for its annotation; use `report.pg_matrix.tsv` to match a DIA-NN-based
 pipeline exactly.
+
+`msstats.csv` and `msstats_ptm.csv` (MSstats and MSstatsPTM input) appear in `dia-quant-output/`
+only when `diann.generate-msstats=true` or `fragdia.generate-msstats=true`. Both are off by default
+and in every built-in workflow, so a missing `msstats.csv` there is not a failed run. Setting the
+flag is not always enough:
+
+- DIA-NN writes them only with DIA-NN before 2.0, and not with PredLib, a library named on the DIA-NN
+  panel, or plexDIA. FragPipe hides the box for DIA-NN 2.x. When the conversion runs, it writes both
+  files.
+- FragDIA writes none under plexDIA, and FragPipe refuses to start if a DIA file has no experiment.
+  FragDIA writes `msstats_ptm.csv` only with a mod tag and site localization, from `psm.tsv` or from
+  FragDIA itself.
 
 Gotchas:
 
